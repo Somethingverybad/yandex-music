@@ -1,0 +1,77 @@
+{
+  "name": "ya-music-widget",
+  "productName": "YaMusic Widget",
+  "version": "1.0.0",
+  "description": "Кроссплатформенный клиент Яндекс Музыки: мини-плеер-виджет поверх окон и скачивание треков",
+  "main": "src/main/index.js",
+  "license": "MIT",
+  "author": {
+    "name": "ancher",
+    "email": "simbagoapp@gmail.com"
+  },
+  "homepage": "https://github.com/cptn73m0/ya-music-desktop",
+  "scripts": {
+    "start": "electron .",
+    "dev": "YMW_DEV=1 electron .",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux AppImage deb",
+    "dist:win": "electron-builder --win nsis portable",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "dbus-next": "^0.9.2",
+    "mpris-service": "^2.1.2",
+    "node-id3": "^0.2.9"
+  },
+  "devDependencies": {
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.yamusic.widget",
+    "productName": "YaMusic Widget",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icon.png",
+      "category": "AudioVideo",
+      "syncDesktopName": true,
+      "executableArgs": [
+        "--ozone-platform=x11"
+      ],
+      "synopsis": "Мини-плеер Яндекс Музыки",
+      "desktop": {
+        "entry": {
+          "Name": "YaMusic Widget",
+          "Comment": "Мини-плеер Яндекс Музыки поверх окон",
+          "Keywords": "music;player;yandex;"
+        }
+      }
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.music"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

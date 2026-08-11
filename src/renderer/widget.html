@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' file: https: data:;">
+  <title>YaMusic Widget</title>
+  <link rel="stylesheet" href="widget.css">
+</head>
+<body class="glass">
+  <!-- Карта смещения для преломления по краям стекла: светлые края
+       толкают картинку наружу, центр остаётся нетронутым. -->
+  <svg class="filters" aria-hidden="true">
+    <defs>
+      <filter id="glass-refract" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feImage href="data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%27360%27%20height=%27100%27%3E%3Cdefs%3E%3ClinearGradient%20id=%27x%27%20x1=%270%27%20y1=%270%27%20x2=%271%27%20y2=%270%27%3E%3Cstop%20offset=%270%27%20stop-color=%27%23ff0000%27/%3E%3Cstop%20offset=%270.10%27%20stop-color=%27%23800000%27/%3E%3Cstop%20offset=%270.90%27%20stop-color=%27%23800000%27/%3E%3Cstop%20offset=%271%27%20stop-color=%27%23000000%27/%3E%3C/linearGradient%3E%3ClinearGradient%20id=%27y%27%20x1=%270%27%20y1=%270%27%20x2=%270%27%20y2=%271%27%3E%3Cstop%20offset=%270%27%20stop-color=%27%2300ff00%27/%3E%3Cstop%20offset=%270.30%27%20stop-color=%27%23008000%27/%3E%3Cstop%20offset=%270.70%27%20stop-color=%27%23008000%27/%3E%3Cstop%20offset=%271%27%20stop-color=%27%23000000%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width=%27360%27%20height=%27100%27%20fill=%27url(%23x)%27/%3E%3Crect%20width=%27360%27%20height=%27100%27%20fill=%27url(%23y)%27%20style=%27mix-blend-mode:screen%27/%3E%3C/svg%3E" result="map" preserveAspectRatio="none"/>
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="28"
+                           xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Фон: обложка текущего трека, сильно размытая — именно её преломляет стекло -->
+  <div class="backdrop" id="backdrop">
+    <img id="backdrop-img" alt="">
+  </div>
+
+  <!-- Стеклянная линза: WebGL-слой под содержимым виджета -->
+  <canvas class="glass-canvas" id="glass-canvas"></canvas>
+
+  <div class="widget" id="widget">
+    <div class="glass-sheen" aria-hidden="true"></div>
+
+    <div class="cover" id="cover" title="Открыть Яндекс Музыку">
+      <img id="cover-img" alt="">
+      <div class="cover-placeholder" id="cover-placeholder">♪</div>
+    </div>
+
+    <div class="info">
+      <div class="title-row">
+        <div class="marquee" id="title-box"><span id="title">Ничего не играет</span></div>
+      </div>
+      <div class="artist" id="artist">Откройте Яндекс Музыку и включите трек</div>
+
+      <div class="transport">
+        <button class="icon-btn" id="prev" title="Предыдущий (Ctrl+←)">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button class="icon-btn play" id="play" title="Играть / пауза (Пробел)">
+          <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="icon-btn" id="next" title="Следующий (Ctrl+→)">
+          <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </button>
+        <span class="time" id="time">0:00 / 0:00</span>
+      </div>
+    </div>
+
+    <div class="side">
+      <button class="icon-btn small" id="like" title="Мне нравится">
+        <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.7-9.6-9A5.2 5.2 0 0 1 12 6.3 5.2 5.2 0 0 1 21.6 12c-2.1 4.3-9.6 9-9.6 9z"/></svg>
+      </button>
+      <button class="icon-btn small" id="download" title="Скачать текущий трек">
+        <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3zM5 19h14v2H5z"/></svg>
+      </button>
+      <button class="icon-btn small" id="menu-btn" title="Меню">
+        <svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+      </button>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="progress-fill" id="progress-fill"></div>
+      <div class="progress-knob" id="progress-knob"></div>
+    </div>
+  </div>
+
+  <script src="glass-gl.js"></script>
+  <script src="widget.js"></script>
+</body>
+</html>
