@@ -3,11 +3,27 @@
   --pad: 24px;
   --fg: #f6f6f7;
   --fg-muted: rgba(240, 240, 245, 0.72);
+  /* Акцент интерфейса = активный сервис: жёлтый — Яндекс Музыка,
+     синий — ВК Музыка. Отдельной подписи нет, цвет и есть индикатор. */
   --accent: #ffdb4d;
+  --accent-hover: #ffe680;
+  --accent-glow: rgba(255, 219, 77, 0.4);
+  --accent-knob-glow: rgba(255, 219, 77, 0.6);
   --radius: 16px;
+  /* Синий ВК держим посветлее фирменного #0077FF: на тёмном стекле тот
+     проваливается, а иконке на кнопке play нужен читаемый контраст */
+  --accent-vk: #4aa1ff;
   /* Непрозрачная подложка — используется, когда стекло выключено
      или у трека нет обложки */
   --solid-bg: rgba(24, 24, 27, 0.94);
+}
+
+/* Активный сервис — ВК: весь акцент интерфейса становится синим */
+body.source-vk {
+  --accent: var(--accent-vk);
+  --accent-hover: #6fb5ff;
+  --accent-glow: rgba(74, 161, 255, 0.42);
+  --accent-knob-glow: rgba(74, 161, 255, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -254,10 +270,10 @@ body.glass.has-art .glass-sheen { opacity: 1; }
   width: 30px;
   height: 30px;
   margin: 0 3px;
-  box-shadow: 0 2px 10px rgba(255, 219, 77, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 10px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.icon-btn.play:hover { background: #ffe680; }
+.icon-btn.play:hover { background: var(--accent-hover); }
 .icon-btn.play svg { width: 19px; height: 19px; filter: none; }
 
 .icon-btn.small { width: 24px; height: 24px; }
@@ -319,7 +335,7 @@ body.glass.has-art .glass-sheen { opacity: 1; }
   height: 3px;
   width: 0;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(255, 219, 77, 0.6);
+  box-shadow: 0 0 8px var(--accent-knob-glow);
   transition: height 0.12s;
 }
 

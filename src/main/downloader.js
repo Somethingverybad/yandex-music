@@ -51,8 +51,7 @@ function coverUrl(entity, size = '400x400') {
   return 'https://' + String(uri).replace('%%', size);
 }
 
-async function fetchCover(track, album) {
-  const url = coverUrl(track) || coverUrl(album) || coverUrl(trackAlbum(track));
+async function fetchImage(url) {
   if (!url) return null;
   try {
     const response = await fetch(url);
@@ -62,6 +61,10 @@ async function fetchCover(track, album) {
     console.warn('[downloader] не удалось скачать обложку:', err.message);
     return null;
   }
+}
+
+async function fetchCover(track, album) {
+  return fetchImage(coverUrl(track) || coverUrl(album) || coverUrl(trackAlbum(track)));
 }
 
 class Downloader {
@@ -137,6 +140,15 @@ class Downloader {
     const trackId = String(track.id ?? track.trackId ?? '');
     const { url } = await this._api.trackFileUrl(trackId, this._config.get('preferred_bitrate'));
 
+    await this._fetchToFile(url, filePath);
+
+    await this._writeTags(filePath, track, album);
+    console.log('[downloader] скачан трек: %s', path.basename(filePath));
+    return { path: filePath, skipped: false };
+  }
+
+  /** Качает файл во временный .part и переименовывает только целым. */
+  async _fetchToFile(url, filePath) {
     const response = await fetch(url);
     if (!response.ok || !response.body) {
       throw new Error(`Не удалось скачать файл (${response.status})`);
@@ -149,13 +161,9 @@ class Downloader {
       await fsp.unlink(tmpPath).catch(() => {});
       throw err;
     }
-
-    await this._writeTags(filePath, track, album);
-    console.log('[downloader] скачан трек: %s', path.basename(filePath));
-    return { path: filePath, skipped: false };
   }
 
-  async _writeTags(filePath, track, album) {
+  async _writeTags(filePath, track, album, { coverUrl: directCover = null } = {}) {
     try {
       const albumObj = album || trackAlbum(track);
       const tags = {
@@ -172,7 +180,9 @@ class Downloader {
       const position = track.trackPosition || (inAlbum && inAlbum.trackPosition);
       if (position && position.index) tags.trackNumber = String(position.index);
 
-      const cover = await fetchCover(track, albumObj);
+      const cover = directCover
+        ? await fetchImage(directCover)
+        : await fetchCover(track, albumObj);
       if (cover) {
         tags.image = {
           mime: 'image/jpeg',
@@ -191,6 +201,54 @@ class Downloader {
   }
 
   /* ---------- публичный API ---------- */
+
+  /**
+   * Трек, у которого уже есть прямая ссылка на файл, — так приходит музыка
+   * из ВК: id для API у нас нет, зато есть готовый адрес и метаданные.
+   * Раскладка по каталогам, пропуск скачанного и теги — общие с ЯМ.
+   *
+   * @param {{title,artist,album,url,cover,duration}} track
+   */
+  async saveDirectTrack(track, { jobId } = {}) {
+    if (!track || !track.url) throw new Error('Не удалось получить ссылку на файл');
+    if (/\.m3u8(\?|$)/i.test(track.url)) {
+      // HLS пришлось бы склеивать из сегментов и перекодировать — этого
+      // приложение не делает, а молча сохранять битый файл нельзя
+      throw new Error('Трек отдаётся потоком HLS — скачивание недоступно');
+    }
+
+    const asYm = {
+      title: track.title,
+      artists: [{ name: track.artist || 'Неизвестный исполнитель' }],
+      albums: track.album ? [{ title: track.album }] : [],
+    };
+
+    const base = this._baseDir();
+    await fsp.mkdir(base, { recursive: true });
+    this._progress({ jobId, current: 0, total: 1, pct: 0, title: track.title });
+
+    const directory = this._trackDir(base, asYm, null);
+    await fsp.mkdir(directory, { recursive: true });
+
+    const fileName = `${sanitize(formatArtists(asYm.artists))} - ${sanitize(track.title || 'track')}.mp3`;
+    const filePath = path.join(directory, fileName);
+
+    if (this._config.get('skip_existing') && fs.existsSync(filePath)) {
+      const stat = await fsp.stat(filePath);
+      if (stat.size > 0) {
+        console.log('[downloader] пропуск (уже скачан): %s', fileName);
+        this._progress({ jobId, current: 1, total: 1, pct: 100, title: track.title });
+        return { ok: true, saved: 0, skipped: 1, errors: [], path: filePath };
+      }
+    }
+
+    await this._fetchToFile(track.url, filePath);
+    await this._writeTags(filePath, asYm, null, { coverUrl: track.cover });
+    this._progress({ jobId, current: 1, total: 1, pct: 100, title: track.title });
+
+    console.log('[downloader] скачан трек: %s', fileName);
+    return { ok: true, saved: 1, skipped: 0, errors: [], path: filePath };
+  }
 
   async downloadTrack(trackId, { jobId } = {}) {
     const track = await this._api.track(trackId);

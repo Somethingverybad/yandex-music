@@ -26,9 +26,14 @@ const traySni = require('./tray-sni');
 const wallpaper = require('./wallpaper');
 
 const APP_URL = 'https://music.yandex.ru';
+// ВК Музыка: звук играет тот же веб-плеер, что и в браузере, — приложение
+// им только дирижирует. Домен vk.ru, а не vk.com: на нём работает выдача
+// web_token, которой пользуется загрузчик (см. vk-api.js).
+const VK_URL = 'https://vk.ru/audio';
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const INJECT_JS = path.join(ROOT_DIR, 'src', 'inject', 'inject.js');
 const PLAYER_BRIDGE_JS = path.join(ROOT_DIR, 'src', 'inject', 'player-bridge.js');
+const VK_API_JS = path.join(ROOT_DIR, 'src', 'inject', 'vk-api.js');
 const ICON_PATH = path.join(ROOT_DIR, 'assets', 'icon.png');
 
 // Панель + прозрачные поля вокруг неё: тень должна помещаться внутрь окна,
@@ -51,10 +56,14 @@ const AD_URL_PATTERNS = [
 ];
 
 let mainWindow = null;
+let vkWindow = null;
 let widgetWindow = null;
 let tray = null;
 let api = null;
 let downloader = null;
+// Состояние копится по каждому источнику отдельно: неактивный сервис может
+// продолжать играть, но виджет, трей и MPRIS показывают только выбранный.
+let stateBySource = { ym: null, vk: null };
 let lastState = null;
 let quitting = false;
 let saveWidgetPosTimer = null;
@@ -102,11 +111,37 @@ function sendToWidget(channel, payload) {
   }
 }
 
-/** Выполняет метод драйвера плеера в странице ЯМ. */
+/* ---------- источники музыки ---------- */
+
+/** Активный сервис: им управляют виджет, трей, медиа-клавиши и MPRIS. */
+function activeSource() {
+  const source = config.get('source');
+  if (source === 'vk' && config.get('vk_enabled')) return 'vk';
+  return 'ym';
+}
+
+function sourceWindow(source) {
+  const win = source === 'vk' ? vkWindow : mainWindow;
+  return win && !win.isDestroyed() ? win : null;
+}
+
+/** Окно, которое сейчас играет и слушает команды. */
+function activeWindow() {
+  return sourceWindow(activeSource());
+}
+
+/** К какому источнику относится окно, приславшее событие. */
+function sourceOfContents(contents) {
+  if (vkWindow && !vkWindow.isDestroyed() && contents === vkWindow.webContents) return 'vk';
+  return 'ym';
+}
+
+/** Выполняет метод драйвера плеера в странице активного сервиса. */
 function playerCall(method, ...args) {
-  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false);
+  const win = activeWindow();
+  if (!win) return Promise.resolve(false);
   const argsJson = args.map((a) => JSON.stringify(a)).join(', ');
-  return mainWindow.webContents
+  return win.webContents
     .executeJavaScript(`window.__ymPlayer && window.__ymPlayer.${method}(${argsJson});`)
     .catch((err) => {
       console.warn('[main] playerCall(%s) не удался: %s', method, err.message);
@@ -114,18 +149,40 @@ function playerCall(method, ...args) {
     });
 }
 
+/** Ставит на паузу сервис, который перестал быть активным. */
+function pauseSource(source) {
+  const win = sourceWindow(source);
+  if (!win) return;
+  win.webContents
+    .executeJavaScript('window.__ymPlayer && window.__ymPlayer.pause();')
+    .catch(() => {});
+}
+
 /* ------------------------------------------------------------------ */
 /* Окно Яндекс Музыки                                                  */
 /* ------------------------------------------------------------------ */
 
-function injectScripts(contents) {
+/** Мост плеера — общий для ЯМ и ВК: профиль выбирается по домену страницы. */
+function injectPlayerBridge(contents) {
   const bridge = readFileSafe(PLAYER_BRIDGE_JS);
+  if (!bridge) return;
+  contents.executeJavaScript(bridge)
+    .then((result) => console.log('[main] player-bridge внедрён:', result))
+    .catch((err) => console.warn('[main] player-bridge:', err.message));
+}
+
+/** Клиент аудио ВК: живёт в странице, чтобы ходить с её cookie и Origin. */
+function injectVkApi(contents) {
+  const script = readFileSafe(VK_API_JS);
+  if (!script) return;
+  contents.executeJavaScript(script)
+    .then((result) => console.log('[main] vk-api внедрён:', result))
+    .catch((err) => console.warn('[main] vk-api:', err.message));
+}
+
+function injectScripts(contents) {
   const inject = readFileSafe(INJECT_JS);
-  if (bridge) {
-    contents.executeJavaScript(bridge)
-      .then((result) => console.log('[main] player-bridge внедрён:', result))
-      .catch((err) => console.warn('[main] player-bridge:', err.message));
-  }
+  injectPlayerBridge(contents);
   if (inject) {
     contents.executeJavaScript(inject)
       .then(() => console.log('[main] inject.js внедрён'))
@@ -203,6 +260,122 @@ function createMainWindow() {
     mainWindow.once('ready-to-show', () => mainWindow.show());
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Окно ВК Музыки                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Окно ВК устроено так же, как окно ЯМ: звук играет сам веб-плеер сервиса,
+ * а приложение читает состояние через player-bridge (профиль 'vk') и шлёт
+ * ему команды. Своего плеера у нас нет — значит, ничего не ломается при
+ * очередном изменении вёрстки VK, пока жив mediaSession.
+ */
+function createVkWindow() {
+  vkWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    title: 'ВК Музыка',
+    icon: ICON_PATH,
+    backgroundColor: '#000000',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(ROOT_DIR, 'src', 'preload', 'vk.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  vkWindow.loadURL(VK_URL);
+
+  vkWindow.webContents.on('did-finish-load', () => {
+    console.log('[main] страница ВК загружена, внедряю мост плеера');
+    injectPlayerBridge(vkWindow.webContents);
+    injectVkApi(vkWindow.webContents);
+  });
+  vkWindow.webContents.on('did-fail-load', (_e, code, description, url) => {
+    console.warn('[main] ВК: загрузка не удалась (%s): %s %s', code, description, url);
+  });
+  vkWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
+    console.error('[main] ВК: ошибка preload %s: %s', preloadPath, error.message);
+  });
+  // VK — SPA: переход между разделами не перезагружает документ
+  vkWindow.webContents.on('did-navigate-in-page', () => injectPlayerBridge(vkWindow.webContents));
+
+  vkWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // авторизация и внутренние ссылки VK остаются в окне приложения,
+    // остальное уходит в системный браузер
+    if (/^https:\/\/([a-z0-9-]+\.)?(vk\.ru|vk\.com|login\.vk\.ru)\//.test(url)) {
+      vkWindow.loadURL(url);
+      return { action: 'deny' };
+    }
+    shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+
+  vkWindow.on('close', (event) => {
+    if (!quitting && config.get('close_to_tray')) {
+      event.preventDefault();
+      vkWindow.hide();
+    }
+  });
+
+  const win = vkWindow;
+  win.on('closed', () => { if (vkWindow === win) vkWindow = null; });
+
+  if (process.env.YMW_DEV) {
+    vkWindow.once('ready-to-show', () => vkWindow.show());
+    vkWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+}
+
+function showVkWindow() {
+  if (!config.get('vk_enabled')) {
+    config.set('vk_enabled', true);
+    config.save();
+  }
+  if (!vkWindow || vkWindow.isDestroyed()) {
+    createVkWindow();
+    vkWindow.once('ready-to-show', () => vkWindow.show());
+    return;
+  }
+  if (!vkWindow.isVisible()) vkWindow.show();
+  if (vkWindow.isMinimized()) vkWindow.restore();
+  vkWindow.focus();
+}
+
+/**
+ * Переключает активный сервис. Играет всегда ровно один: все остальные
+ * источники ставятся на паузу — иначе два веб-плеера звучали бы вместе.
+ */
+function setSource(source) {
+  const next = source === 'vk' ? 'vk' : 'ym';
+  if (next === activeSource()) return;
+
+  for (const other of ['ym', 'vk']) {
+    if (other !== next) pauseSource(other);
+  }
+  config.set('source', next);
+  config.save();
+
+  if (next === 'vk' && (!vkWindow || vkWindow.isDestroyed())) {
+    config.set('vk_enabled', true);
+    config.save();
+    createVkWindow();
+  }
+
+  lastState = stateBySource[next];
+  sendToWidget('player:config', { source: next });
+  sendToWidget('widget:config', widgetConfig());
+  if (lastState) sendToWidget('player:state', lastState);
+  mpris.update(lastState);
+  rebuildTrayMenu();
 }
 
 /** Окно авторизации/получения токена с перехватом access_token. */
@@ -386,7 +559,21 @@ function createWidget() {
 function showWidgetMenu(x, y) {
   if (!widgetWindow || widgetWindow.isDestroyed()) return;
   const menu = Menu.buildFromTemplate([
+    {
+      label: 'Играет: Яндекс Музыка',
+      type: 'checkbox',
+      checked: activeSource() === 'ym',
+      click: () => setSource('ym'),
+    },
+    {
+      label: 'Играет: ВК Музыка',
+      type: 'checkbox',
+      checked: activeSource() === 'vk',
+      click: () => setSource('vk'),
+    },
+    { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
+    { label: 'Открыть ВК Музыку', click: showVkWindow },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Настройки загрузок', click: () => { showMainWindow(); playerCall('openSettings'); } },
     { type: 'separator' },
@@ -587,7 +774,21 @@ function trayMenuTemplate() {
     { label: 'Следующий трек', click: () => playerCall('next') },
     { label: 'Предыдущий трек', click: () => playerCall('prev') },
     { type: 'separator' },
+    {
+      label: 'Играет: Яндекс Музыка',
+      type: 'checkbox',
+      checked: activeSource() === 'ym',
+      click: () => setSource('ym'),
+    },
+    {
+      label: 'Играет: ВК Музыка',
+      type: 'checkbox',
+      checked: activeSource() === 'vk',
+      click: () => setSource('vk'),
+    },
+    { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
+    { label: 'Открыть ВК Музыку', click: showVkWindow },
     { label: 'Показать виджет', click: () => showWidget() },
     { label: 'Вернуть виджет на место', click: () => handleWidgetCommand('reset-position') },
     {
@@ -658,7 +859,36 @@ function reportProgress(payload) {
 }
 
 /** Скачивание трека, который сейчас играет (кнопка на виджете и в трее). */
+/**
+ * Скачивание из ВК. Прямую ссылку на файл знает только страница vk.ru —
+ * там есть и cookie сессии, и ключ распаковки адреса, поэтому её добывает
+ * vk-api.js, а main лишь сохраняет файл и проставляет теги.
+ */
+async function downloadCurrentVkTrack() {
+  const win = sourceWindow('vk');
+  if (!win) {
+    sendToWidget('download:done', { ok: false, error: 'Окно ВК Музыки не открыто' });
+    return;
+  }
+
+  try {
+    const track = await win.webContents.executeJavaScript(
+      'window.__vkApi && window.__vkApi.currentTrack();'
+    );
+    if (!track) throw new Error('Сейчас ничего не играет');
+
+    sendToWidget('download:progress', { pct: 0, title: track.title });
+    const result = await downloader.saveDirectTrack(track);
+    sendToWidget('download:done', result);
+  } catch (err) {
+    console.error('[main] скачивание трека ВК:', err.message);
+    sendToWidget('download:done', { ok: false, error: err.message });
+  }
+}
+
 async function downloadCurrentTrack() {
+  if (activeSource() === 'vk') return downloadCurrentVkTrack();
+
   if (!config.isAuthorized()) {
     showMainWindow();
     playerCall('openToken');
@@ -753,7 +983,19 @@ function registerIpc() {
 
   /* --- состояние плеера из страницы ЯМ --- */
 
-  ipcMain.on('player:state', (_event, state) => {
+  ipcMain.on('player:state', (event, state) => {
+    // состояние шлют оба окна; наружу отдаём только активный сервис
+    const source = sourceOfContents(event.sender);
+    stateBySource[source] = state;
+
+    if (source !== activeSource()) {
+      // В неактивном окне нажали play — значит пользователь хочет слушать
+      // именно его. Двух песен сразу не допускаем: этот сервис становится
+      // активным, прежний глушится (см. setSource).
+      if (state && state.paused === false) setSource(source);
+      return;
+    }
+
     const trackChanged = !lastState || lastState.title !== state.title
       || lastState.artist !== state.artist;
     const pausedChanged = !lastState || lastState.paused !== state.paused;
@@ -792,6 +1034,9 @@ function handleWidgetCommand(command, value) {
     case 'like': playerCall('like'); break;
     case 'download': downloadCurrentTrack(); break;
     case 'refresh-backdrop': captureWidgetBackdrop(); break;
+    case 'set-source': setSource(value); break;
+    case 'toggle-source': setSource(activeSource() === 'ym' ? 'vk' : 'ym'); break;
+    case 'open-service': (activeSource() === 'vk' ? showVkWindow : showMainWindow)(); break;
 
     case 'reset-position': {
       const position = defaultWidgetPosition();
@@ -873,6 +1118,8 @@ function widgetConfig() {
     compact: config.get('widget_compact'),
     alwaysOnTop: config.get('widget_always_on_top'),
     inTaskbar: config.get('widget_in_taskbar'),
+    source: activeSource(),
+    vkEnabled: Boolean(config.get('vk_enabled')),
     glass: config.get('widget_glass'),
     glassOptions: config.get('glass_options'),
     glassBackdrop: config.get('glass_backdrop'),
@@ -1022,6 +1269,9 @@ if (!gotLock) {
       }
     });
     createMainWindow();
+    // Окно ВК поднимается сразу — иначе виджет не смог бы показать, что
+    // там играет, и переключение источника ждало бы загрузки страницы
+    if (config.get('vk_enabled')) createVkWindow();
     if (config.get('widget_enabled')) createWidget();
     createTray();
     registerMediaKeys();

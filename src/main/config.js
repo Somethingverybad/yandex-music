@@ -29,6 +29,12 @@ const DEFAULTS = {
   skip_existing: true,
   // Блокировщик рекламы в окне Яндекс Музыки
   block_ads: true,
+  // Активный источник музыки: 'ym' — Яндекс Музыка, 'vk' — ВК Музыка.
+  // Виджет управляет тем сервисом, который выбран здесь.
+  source: 'ym',
+  // Держать окно ВК Музыки: выключенный источник не создаёт окна и не
+  // ходит в сеть вовсе
+  vk_enabled: true,
   // Виджет
   widget_enabled: true,
   widget_x: null,
@@ -161,12 +167,16 @@ function update(patch) {
     data.preferred_bitrate = [64, 128, 192, 320].includes(bitrate) ? bitrate : 320;
   }
   for (const key of ['skip_existing', 'block_ads', 'widget_enabled', 'widget_compact',
-    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass',
+    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'vk_enabled',
     'start_hidden', 'close_to_tray']) {
     if (patch[key] !== undefined) data[key] = Boolean(patch[key]);
   }
   for (const key of ['widget_x', 'widget_y']) {
     if (patch[key] !== undefined) data[key] = patch[key] === null ? null : Math.round(patch[key]);
+  }
+  if (patch.source !== undefined) {
+    const source = String(patch.source);
+    if (['ym', 'vk'].includes(source)) data.source = source;
   }
   if (patch.glass_backdrop !== undefined) {
     const mode = String(patch.glass_backdrop);

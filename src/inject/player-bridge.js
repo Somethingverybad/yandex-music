@@ -1,6 +1,11 @@
 /**
- * Драйвер плеера Яндекс Музыки. Исполняется в главном мире страницы
- * (webContents.executeJavaScript), поэтому видит и mediaSession, и DOM сайта.
+ * Драйвер веб-плеера. Один и тот же скрипт работает и в окне Яндекс Музыки,
+ * и в окне ВК Музыки: общая часть опирается на mediaSession и медиа-элементы,
+ * а всё, что зависит от сайта (кнопки плеер-бара, id трека, «лайк»), вынесено
+ * в профиль — он выбирается по домену страницы.
+ *
+ * Исполняется в главном мире страницы (webContents.executeJavaScript),
+ * поэтому видит и mediaSession, и DOM сайта.
  *
  * Состояние собирается по трём источникам, от надёжного к запасному:
  *   1. navigator.mediaSession — метаданные и позиция (стандартный API,
@@ -91,32 +96,82 @@
     return null;
   }
 
-  // Вёрстка ЯМ меняется и классы обфусцированы, а вот data-test-id и
-  // aria-label кнопок плеер-бара живут долго. Метки перечислены и
-  // по-русски, и по-английски — интерфейс зависит от региона аккаунта.
-  var SELECTORS = {
-    play: ['[data-test-id="PLAY_BUTTON"]', '[data-test-id="PLAYER_BAR_PLAY_BUTTON"]'],
-    next: ['[data-test-id="NEXT_TRACK_BUTTON"]'],
-    prev: ['[data-test-id="PREV_TRACK_BUTTON"]'],
-    like: ['[data-test-id="LIKE_BUTTON"]'],
-    trackLink: [
-      '[data-test-id="PLAYERBAR_DESKTOP_TITLE"] a[href*="/track/"]',
-      '[class*="PlayerBar"] a[href*="/track/"]',
-      '[class*="player-bar"] a[href*="/track/"]',
-      '[class*="Meta"] a[href*="/track/"]',
-    ],
+  /*
+   * Профили сайтов.
+   *
+   * ЯМ: вёрстка меняется и классы обфусцированы, а вот data-test-id и
+   * aria-label кнопок плеер-бара живут долго. Метки перечислены и
+   * по-русски, и по-английски — интерфейс зависит от региона аккаунта.
+   *
+   * ВК: у аудиозаписей есть data-full-id вида «ownerId_audioId» — то же,
+   * чем трек адресуется в API, поэтому id читается прямо оттуда. Старый
+   * плеер держит текущий трек в глобальном window.ap, новый — только в DOM,
+   * поэтому пробуем оба.
+   */
+  var PROFILES = {
+    ym: {
+      selectors: {
+        play: ['[data-test-id="PLAY_BUTTON"]', '[data-test-id="PLAYER_BAR_PLAY_BUTTON"]'],
+        next: ['[data-test-id="NEXT_TRACK_BUTTON"]'],
+        prev: ['[data-test-id="PREV_TRACK_BUTTON"]'],
+        like: ['[data-test-id="LIKE_BUTTON"]'],
+        trackLink: [
+          '[data-test-id="PLAYERBAR_DESKTOP_TITLE"] a[href*="/track/"]',
+          '[class*="PlayerBar"] a[href*="/track/"]',
+          '[class*="player-bar"] a[href*="/track/"]',
+          '[class*="Meta"] a[href*="/track/"]',
+        ],
+      },
+      labels: {
+        play: ['пауза', 'слушать', 'играть', 'воспроизвести', 'pause', 'play'],
+        next: ['следующий трек', 'следующая песня', 'next song', 'next track'],
+        prev: ['предыдущий трек', 'предыдущая песня', 'previous song', 'previous track'],
+        like: ['мне нравится', 'нравится', 'like', 'удалить из коллекции'],
+      },
+      trackId: function () {
+        var link = query(PROFILE.selectors.trackLink);
+        if (!link) return null;
+        var match = (link.getAttribute('href') || '').match(/\/track\/(\d+)/);
+        return match ? match[1] : null;
+      },
+    },
+
+    vk: {
+      selectors: {
+        play: ['.top_audio_player_play', '.audio_page_player_play', '[data-testid="audioplayer_play"]'],
+        next: ['.top_audio_player_next', '[data-testid="audioplayer_next"]'],
+        prev: ['.top_audio_player_prev', '[data-testid="audioplayer_prev"]'],
+        like: ['.top_audio_player_add', '[data-testid="audioplayer_add"]'],
+        current: ['.top_audio_player[data-full-id]', '.audio_row_playing[data-full-id]',
+          '.audio_row__playing[data-full-id]', '[data-full-id].audio_row_current'],
+      },
+      labels: {
+        play: ['пауза', 'играть', 'воспроизвести', 'слушать', 'pause', 'play'],
+        next: ['следующая', 'следующий трек', 'вперёд', 'next'],
+        prev: ['предыдущая', 'предыдущий трек', 'назад', 'previous'],
+        like: ['добавить', 'добавить к себе', 'удалить', 'удалить из моей музыки'],
+      },
+      /** id трека в ВК — «ownerId_audioId»: им же адресуется API. */
+      trackId: function () {
+        var ap = window.ap;
+        if (ap && typeof ap.getCurrentAudio === 'function') {
+          try {
+            var tuple = ap.getCurrentAudio();
+            // кортеж аудиозаписи: [0] — id, [1] — id владельца
+            if (tuple && tuple.length > 1) return tuple[1] + '_' + tuple[0];
+          } catch (err) { /* ниже — по DOM */ }
+        }
+        var el = query(PROFILE.selectors.current);
+        return el ? el.getAttribute('data-full-id') : null;
+      },
+    },
   };
 
-  var LABELS = {
-    play: ['пауза', 'слушать', 'играть', 'воспроизвести', 'pause', 'play'],
-    next: ['следующий трек', 'следующая песня', 'next song', 'next track'],
-    prev: ['предыдущий трек', 'предыдущая песня', 'previous song', 'previous track'],
-    like: ['мне нравится', 'нравится', 'like', 'удалить из коллекции'],
-  };
+  var PROFILE = /(^|\.)vk\.(ru|com)$/.test(location.hostname) ? PROFILES.vk : PROFILES.ym;
 
   /** Ищет кнопку по точному совпадению aria-label (регистр не важен). */
   function findByLabel(kind) {
-    var wanted = LABELS[kind];
+    var wanted = PROFILE.labels[kind];
     if (!wanted) return null;
     var buttons = document.querySelectorAll('button[aria-label], [role="button"][aria-label]');
     for (var i = 0; i < buttons.length; i++) {
@@ -127,21 +182,22 @@
   }
 
   function clickButton(kind) {
-    var el = query(SELECTORS[kind]) || findByLabel(kind);
+    var el = query(PROFILE.selectors[kind]) || findByLabel(kind);
     if (!el) return false;
     el.click();
     return true;
   }
 
   function currentTrackId() {
-    var link = query(SELECTORS.trackLink);
-    if (!link) return null;
-    var match = (link.getAttribute('href') || '').match(/\/track\/(\d+)/);
-    return match ? match[1] : null;
+    try {
+      return PROFILE.trackId();
+    } catch (err) {
+      return null;
+    }
   }
 
   function isLiked() {
-    var el = query(SELECTORS.like) || findByLabel('like');
+    var el = query(PROFILE.selectors.like) || findByLabel('like');
     if (!el) return null;
     var pressed = el.getAttribute('aria-pressed');
     if (pressed !== null) return pressed === 'true';
@@ -217,6 +273,7 @@
       paused: paused,
       volume: el ? el.volume : 1,
       muted: el ? el.muted : false,
+      service: PROFILE === PROFILES.vk ? 'vk' : 'ym',
       trackId: currentTrackId(),
       liked: isLiked(),
       hasTrack: Boolean(meta.title || (el && el.src)),

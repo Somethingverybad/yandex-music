@@ -26,6 +26,28 @@ const PAUSE_PATH = 'M6 5h4v14H6zm8 0h4v14h-4z';
 let state = { paused: true, position: 0, duration: 0, hasTrack: false };
 let statusTimer = null;
 let seeking = false;
+let source = 'ym';           // активный сервис: 'ym' | 'vk'
+
+const SERVICES = {
+  ym: { name: 'Яндекс Музыку', hint: 'Откройте Яндекс Музыку и включите трек' },
+  vk: { name: 'ВК Музыку', hint: 'Откройте ВК Музыку и включите трек' },
+};
+
+function service() {
+  return SERVICES[source] || SERVICES.ym;
+}
+
+/**
+ * Активный сервис виден по акценту интерфейса: жёлтый — Яндекс Музыка,
+ * синий — ВК. Отдельной подписи нет, переключается через меню виджета
+ * и трея.
+ */
+function setSource(next) {
+  source = next === 'vk' ? 'vk' : 'ym';
+  document.body.classList.toggle('source-vk', source === 'vk');
+  ui.cover.title = 'Открыть ' + service().name;
+  renderArtist();
+}
 
 /* ---------- стеклянная линза ---------- */
 
@@ -131,7 +153,7 @@ function renderArtist() {
   if (ui.artist.classList.contains('status') || ui.artist.classList.contains('error')) return;
   ui.artist.textContent = state.hasTrack
     ? (state.artist || 'Неизвестный исполнитель')
-    : 'Откройте Яндекс Музыку и включите трек';
+    : service().hint;
 }
 
 /* ---------- отрисовка ---------- */
@@ -226,6 +248,7 @@ window.widgetApi.onConfig(applyConfig);
 
 function applyConfig(cfg) {
   if (!cfg) return;
+  if (cfg.source) setSource(cfg.source);
   document.body.classList.toggle('compact', Boolean(cfg.compact));
   document.body.classList.toggle('glass', cfg.glass !== false);
   document.body.classList.toggle('system-glass', Boolean(cfg.systemGlass) && cfg.glass !== false);
@@ -291,7 +314,7 @@ ui.download.addEventListener('click', () => {
   showStatus('Готовлю скачивание…');
   send('download');
 });
-ui.cover.addEventListener('click', () => send('open-main'));
+ui.cover.addEventListener('click', () => send('open-service'));
 
 /* перемотка по полосе прогресса */
 
