@@ -36,7 +36,13 @@ let lensBackdropMode = 'artwork';
 let lensSourceSize = null;    // размер картинки-источника
 let renderQueued = false;
 
+// На macOS фон за окном размывает система (vibrancy), и своя линза только
+// закрыла бы настоящее стекло собственной обложкой — там её не поднимаем.
+// Остальные платформы работают как раньше.
+let macSystemGlass = false;
+
 function initLens() {
+  if (macSystemGlass) return false;
   if (lens) return true;
   try {
     lens = new window.GlassLens(document.getElementById('glass-canvas'));
@@ -229,8 +235,12 @@ function applyConfig(cfg) {
   document.body.classList.toggle('compact', Boolean(cfg.compact));
   document.body.classList.toggle('glass', cfg.glass !== false);
   document.body.classList.toggle('system-glass', Boolean(cfg.systemGlass) && cfg.glass !== false);
+  document.body.classList.toggle('platform-darwin', cfg.platform === 'darwin');
 
-  if (cfg.glass === false) {
+  macSystemGlass = cfg.platform === 'darwin' && cfg.glass !== false;
+  if (macSystemGlass) lens = null;
+
+  if (cfg.glass === false || macSystemGlass) {
     document.body.classList.remove('gl-glass');
   } else if (initLens()) {
     if (cfg.glassOptions) lens.setOptions(cfg.glassOptions);
