@@ -262,16 +262,45 @@ function applyWidgetSize() {
 }
 
 function defaultWidgetPosition() {
-  const area = screen.getPrimaryDisplay().workArea;
+  // угол того экрана, где сейчас курсор — на многомониторной системе
+  // виджет не должен уезжать на «главный» монитор
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   return {
     x: area.x + area.width - WIDGET_WIDTH - 24,
     y: area.y + area.height - widgetHeight() - 24,
   };
 }
 
+/**
+ * Держит виджет в пределах экрана: панель нельзя утащить за край так,
+ * чтобы её нельзя было поймать мышью обратно.
+ */
+function clampWidgetPosition(x, y) {
+  const width = WIDGET_WIDTH;
+  const height = widgetHeight();
+  // ищем экран, которого окно касается; если ни одного — возвращаем на главный
+  const display = screen.getDisplayMatching({ x, y, width, height })
+    || screen.getPrimaryDisplay();
+  const area = display.workArea;
+
+  // хотя бы столько панели должно остаться на виду
+  const visible = 60;
+  const minX = area.x - (width - WIDGET_PAD - visible);
+  const maxX = area.x + area.width - WIDGET_PAD - visible;
+  const minY = area.y - WIDGET_PAD;
+  const maxY = area.y + area.height - WIDGET_PAD - visible;
+
+  return {
+    x: Math.round(Math.min(Math.max(x, minX), maxX)),
+    y: Math.round(Math.min(Math.max(y, minY), maxY)),
+  };
+}
+
 function createWidget() {
   const saved = { x: config.get('widget_x'), y: config.get('widget_y') };
-  const position = (saved.x != null && saved.y != null) ? saved : defaultWidgetPosition();
+  const position = (saved.x != null && saved.y != null)
+    ? clampWidgetPosition(saved.x, saved.y)
+    : defaultWidgetPosition();
 
   widgetWindow = new BrowserWindow({
     width: WIDGET_WIDTH,
@@ -339,8 +368,10 @@ function createWidget() {
     saveWidgetPosTimer = setTimeout(() => {
       if (!widgetWindow || widgetWindow.isDestroyed()) return;
       const [x, y] = widgetWindow.getPosition();
-      config.set('widget_x', x);
-      config.set('widget_y', y);
+      const safe = clampWidgetPosition(x, y);
+      if (safe.x !== x || safe.y !== y) widgetWindow.setPosition(safe.x, safe.y);
+      config.set('widget_x', safe.x);
+      config.set('widget_y', safe.y);
       config.save();
     }, 700);
   });
@@ -402,6 +433,7 @@ function showWidgetMenu(x, y) {
       click: () => handleWidgetCommand('toggle-taskbar'),
     },
     { type: 'separator' },
+    { label: 'Вернуть виджет на место', click: () => handleWidgetCommand('reset-position') },
     { label: 'Свернуть в панель задач', click: minimizeWidget },
     { label: 'Выключить виджет', click: toggleWidget },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
@@ -557,6 +589,7 @@ function trayMenuTemplate() {
     { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Показать виджет', click: () => showWidget() },
+    { label: 'Вернуть виджет на место', click: () => handleWidgetCommand('reset-position') },
     {
       label: 'Виджет включён',
       type: 'checkbox',
@@ -740,7 +773,10 @@ function registerIpc() {
     showWidgetMenu(position && position.x, position && position.y);
   });
 
-  ipcMain.handle('widget:get-config', () => widgetConfig());
+  ipcMain.handle('widget:get-config', () => {
+    setImmediate(sendWidgetGeometry);
+    return widgetConfig();
+  });
 }
 
 /** Обработка команд виджета — вызывается и по IPC, и из нативного меню. */
@@ -756,6 +792,18 @@ function handleWidgetCommand(command, value) {
     case 'like': playerCall('like'); break;
     case 'download': downloadCurrentTrack(); break;
     case 'refresh-backdrop': captureWidgetBackdrop(); break;
+
+    case 'reset-position': {
+      const position = defaultWidgetPosition();
+      config.set('widget_x', position.x);
+      config.set('widget_y', position.y);
+      config.save();
+      if (widgetWindow && !widgetWindow.isDestroyed()) {
+        widgetWindow.setPosition(position.x, position.y);
+        showWidget();
+      }
+      break;
+    }
 
     case 'glass-artwork':
       config.set('glass_backdrop', 'artwork');
@@ -926,6 +974,31 @@ if (process.platform === 'linux') {
   }
 }
 
+/*
+ * При выходе шина DBus закрывается раньше, чем оболочка успевает получить
+ * ответ на последний запрос к трею или MPRIS. dbus-next в этот момент
+ * бросает «Cannot send message, stream is closed» уже вне наших вызовов,
+ * и Electron показывает окно с ошибкой. Такие разрывы глушим, всё
+ * остальное честно показываем.
+ */
+const SHUTDOWN_NOISE = /stream is closed|Bus is not connected|EPIPE|Connection reset/i;
+
+process.on('uncaughtException', (error) => {
+  const message = (error && error.message) || String(error);
+  if (quitting || SHUTDOWN_NOISE.test(message)) {
+    console.warn('[main] ошибка при завершении (игнорируем): %s', message);
+    return;
+  }
+  console.error('[main] необработанное исключение:', error);
+  dialog.showErrorBox('YaMusic Widget', message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = (reason && reason.message) || String(reason);
+  if (quitting || SHUTDOWN_NOISE.test(message)) return;
+  console.error('[main] необработанный отказ промиса:', reason);
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -976,5 +1049,9 @@ if (!gotLock) {
     globalShortcut.unregisterAll();
     mpris.stop();
     traySni.stop();
+    if (tray) {
+      tray.destroy();
+      tray = null;
+    }
   });
 }

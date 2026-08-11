@@ -20,6 +20,7 @@ let bus = null;
 let itemInterface = null;
 let menuInterface = null;
 let handlers = { onActivate: () => {}, getMenu: () => [] };
+let stopped = false;
 
 /** Electron отдаёт BGRA, спецификация SNI требует ARGB32 big-endian. */
 function toArgbPixmap(image) {
@@ -50,7 +51,11 @@ class DbusMenu extends Interface {
   setItems(items) {
     this._items = items.map((item, index) => ({ ...item, id: index + 1 }));
     this._revision += 1;
-    this.LayoutUpdated(this._revision, 0);
+    try {
+      this.LayoutUpdated(this._revision, 0);
+    } catch (err) {
+      // шина могла закрыться — меню всё равно уже никому не нужно
+    }
   }
 
   _properties(item) {
@@ -158,12 +163,12 @@ class StatusNotifierItem extends Interface {
 
   setIcon(pixmap) {
     this._pixmap = pixmap;
-    this.NewIcon();
+    try { this.NewIcon(); } catch (_) { /* шина закрыта */ }
   }
 
   setTooltip(text) {
     this._tooltip = text || this._title;
-    this.NewToolTip();
+    try { this.NewToolTip(); } catch (_) { /* шина закрыта */ }
   }
 
   Activate(x, y) { handlers.onActivate(); }
@@ -232,6 +237,7 @@ StatusNotifierItem.configureMembers({
  */
 async function start({ id, title, image, onActivate, menuItems }) {
   if (process.platform !== 'linux') return false;
+  stopped = false;
   handlers.onActivate = onActivate || (() => {});
 
   try {
@@ -265,20 +271,33 @@ async function start({ id, title, image, onActivate, menuItems }) {
 }
 
 function setMenu(items) {
-  if (menuInterface) menuInterface.setItems(items || []);
+  if (stopped || !menuInterface) return;
+  menuInterface.setItems(items || []);
 }
 
 function setTooltip(text) {
-  if (itemInterface) itemInterface.setTooltip(text);
+  if (stopped || !itemInterface) return;
+  itemInterface.setTooltip(text);
 }
 
 function stop() {
+  if (stopped) return;
+  stopped = true;
   try {
-    if (bus) bus.disconnect();
+    // Сначала снимаем экспорт: иначе последний запрос оболочки уедет в наш
+    // интерфейс и ответ на него улетит в уже закрытый сокет.
+    if (bus) {
+      if (itemInterface) bus.unexport('/StatusNotifierItem', itemInterface);
+      if (menuInterface) bus.unexport('/MenuBar', menuInterface);
+      bus.disconnect();
+    }
   } catch (_) { /* уже отключён */ }
   bus = null;
   itemInterface = null;
   menuInterface = null;
 }
 
-module.exports = { start, setMenu, setTooltip, stop, isActive: () => Boolean(itemInterface) };
+module.exports = {
+  start, setMenu, setTooltip, stop,
+  isActive: () => Boolean(itemInterface) && !stopped,
+};

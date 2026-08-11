@@ -9,9 +9,11 @@
 let player = null;
 let lastTrackKey = '';
 let currentState = null;
+let stopped = false;
 
 function start({ onCommand, getState }) {
   if (process.platform !== 'linux') return;
+  stopped = false;
 
   let Player;
   try {
@@ -64,7 +66,7 @@ function start({ onCommand, getState }) {
 }
 
 function update(state) {
-  if (!player || !state) return;
+  if (stopped || !player || !state) return;
   currentState = state;
   try {
     const key = `${state.artist}|${state.title}|${Math.round(state.duration || 0)}`;
@@ -95,6 +97,7 @@ function hash(text) {
 }
 
 function stop() {
+  stopped = true;
   currentState = null;
   if (player && typeof player.disconnect === 'function') {
     try { player.disconnect(); } catch (_) { /* уже отключён */ }
