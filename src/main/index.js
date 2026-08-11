@@ -38,14 +38,39 @@ const ICON_PATH = path.join(ROOT_DIR, 'assets', 'icon.png');
 
 // Панель + прозрачные поля вокруг неё: тень должна помещаться внутрь окна,
 // иначе она обрезается его границей и в углах остаются тёмные прямоугольники.
-const WIDGET_PAD = 24;
+const SHADOW_PAD = 24;
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 100;
 const PANEL_HEIGHT_COMPACT = 58;
 
-const WIDGET_WIDTH = PANEL_WIDTH + WIDGET_PAD * 2;
-const WIDGET_HEIGHT = PANEL_HEIGHT + WIDGET_PAD * 2;
-const WIDGET_HEIGHT_COMPACT = PANEL_HEIGHT_COMPACT + WIDGET_PAD * 2;
+/**
+ * Только macOS: vibrancy заливает весь contentView окна, поэтому прозрачные
+ * поля под тень превратились бы в видимую серую рамку вокруг панели. Там окно
+ * делается ровно по панели, а тень рисует система.
+ *
+ * На Linux и Windows поведение прежнее: поля есть, тень рисует CSS.
+ */
+function macSystemGlass() {
+  return process.platform === 'darwin' && glassEnabled();
+}
+
+/**
+ * На macOS стекло рисует система, оно ничего не стоит и выключать его нечем:
+ * без vibrancy окно осталось бы просто прозрачным. Поэтому там оно всегда
+ * включено, а из меню переключатели стекла убраны. На Linux и Windows
+ * стеклянный вид по-прежнему переключается настройкой widget_glass.
+ */
+function glassEnabled() {
+  return process.platform === 'darwin' || Boolean(config.get('widget_glass'));
+}
+
+function widgetPad() {
+  return macSystemGlass() ? 0 : SHADOW_PAD;
+}
+
+function widgetWidth() {
+  return PANEL_WIDTH + widgetPad() * 2;
+}
 
 // Рекламные домены и пути — режем на уровне сети (надёжнее, чем в DOM)
 const AD_URL_PATTERNS = [
@@ -423,14 +448,15 @@ async function acceptToken(token) {
 /* ------------------------------------------------------------------ */
 
 function widgetHeight() {
-  return config.get('widget_compact') ? WIDGET_HEIGHT_COMPACT : WIDGET_HEIGHT;
+  const panel = config.get('widget_compact') ? PANEL_HEIGHT_COMPACT : PANEL_HEIGHT;
+  return panel + widgetPad() * 2;
 }
 
 /** Меняет размер виджета: у неизменяемого окна setSize молча игнорируется. */
 function applyWidgetSize() {
   if (!widgetWindow || widgetWindow.isDestroyed()) return;
   widgetWindow.setResizable(true);
-  widgetWindow.setSize(WIDGET_WIDTH, widgetHeight(), false);
+  widgetWindow.setSize(widgetWidth(), widgetHeight(), false);
   widgetWindow.setResizable(false);
 }
 
@@ -439,7 +465,7 @@ function defaultWidgetPosition() {
   // виджет не должен уезжать на «главный» монитор
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   return {
-    x: area.x + area.width - WIDGET_WIDTH - 24,
+    x: area.x + area.width - widgetWidth() - 24,
     y: area.y + area.height - widgetHeight() - 24,
   };
 }
@@ -449,7 +475,7 @@ function defaultWidgetPosition() {
  * чтобы её нельзя было поймать мышью обратно.
  */
 function clampWidgetPosition(x, y) {
-  const width = WIDGET_WIDTH;
+  const width = widgetWidth();
   const height = widgetHeight();
   // ищем экран, которого окно касается; если ни одного — возвращаем на главный
   const display = screen.getDisplayMatching({ x, y, width, height })
@@ -458,10 +484,10 @@ function clampWidgetPosition(x, y) {
 
   // хотя бы столько панели должно остаться на виду
   const visible = 60;
-  const minX = area.x - (width - WIDGET_PAD - visible);
-  const maxX = area.x + area.width - WIDGET_PAD - visible;
-  const minY = area.y - WIDGET_PAD;
-  const maxY = area.y + area.height - WIDGET_PAD - visible;
+  const minX = area.x - (width - widgetPad() - visible);
+  const maxX = area.x + area.width - widgetPad() - visible;
+  const minY = area.y - widgetPad();
+  const maxY = area.y + area.height - widgetPad() - visible;
 
   return {
     x: Math.round(Math.min(Math.max(x, minX), maxX)),
@@ -476,7 +502,7 @@ function createWidget() {
     : defaultWidgetPosition();
 
   widgetWindow = new BrowserWindow({
-    width: WIDGET_WIDTH,
+    width: widgetWidth(),
     height: widgetHeight(),
     x: position.x,
     y: position.y,
@@ -493,8 +519,8 @@ function createWidget() {
     // Настоящее системное стекло — размывается то, что за окном.
     // Такого API нет только на Linux: Mutter не даёт приложениям
     // размывать содержимое под своим окном.
-    ...(config.get('widget_glass') && process.platform === 'darwin'
-      ? { vibrancy: 'under-window', visualEffectState: 'active' } : {}),
+    ...(macSystemGlass()
+      ? { vibrancy: config.get('mac_vibrancy') || 'hud', visualEffectState: 'active' } : {}),
     ...(config.get('widget_glass') && process.platform === 'win32'
       ? { backgroundMaterial: 'acrylic' } : {}),
     title: 'YaMusic Widget',
@@ -528,8 +554,13 @@ function createWidget() {
 
   if (process.env.YMW_DEV) widgetWindow.webContents.openDevTools({ mode: 'detach' });
 
-  widgetWindow.once('ready-to-show', () => {
-    widgetWindow.show();
+  // Окно берём по локальной ссылке: старое окно шлёт 'closed' уже после того,
+  // как пересоздание положило в widgetWindow новое, и глобальная ссылка в этот
+  // момент может быть null.
+  const win = widgetWindow;
+  win.once('ready-to-show', () => {
+    if (win.isDestroyed()) return;
+    win.show();
     sendWidgetGeometry();
     if (lastState) sendToWidget('player:state', lastState);
   });
@@ -549,7 +580,9 @@ function createWidget() {
     }, 700);
   });
 
-  widgetWindow.on('closed', () => { widgetWindow = null; });
+  // Сбрасываем ссылку только если закрылось именно текущее окно: иначе
+  // 'closed' от пересозданного окна обнулит уже созданное ему на замену.
+  win.on('closed', () => { if (widgetWindow === win) widgetWindow = null; });
 }
 
 /**
@@ -589,30 +622,35 @@ function showWidgetMenu(x, y) {
       checked: Boolean(config.get('widget_always_on_top')),
       click: () => handleWidgetCommand('toggle-on-top'),
     },
-    {
-      label: 'Фон стекла: обложка трека',
-      type: 'checkbox',
-      checked: config.get('glass_backdrop') === 'artwork',
-      click: () => handleWidgetCommand('glass-artwork'),
-    },
-    {
-      label: 'Фон стекла: своя картинка…',
-      type: 'checkbox',
-      checked: config.get('glass_backdrop') === 'image',
-      click: () => handleWidgetCommand('glass-image'),
-    },
-    {
-      label: 'Фон стекла: снимок экрана',
-      type: 'checkbox',
-      checked: config.get('glass_backdrop') === 'snapshot',
-      click: () => handleWidgetCommand('glass-snapshot'),
-    },
-    {
-      label: 'Стеклянный вид',
-      type: 'checkbox',
-      checked: Boolean(config.get('widget_glass')),
-      click: () => handleWidgetCommand('toggle-glass'),
-    },
+    // Выбор фона под линзой и сам переключатель стекла нужны только там,
+    // где стекло рисует виджет. На маке размывает система: линзы нет,
+    // выключать нечего — пункты в меню не показываем.
+    ...(process.platform === 'darwin' ? [] : [
+      {
+        label: 'Фон стекла: обложка трека',
+        type: 'checkbox',
+        checked: config.get('glass_backdrop') === 'artwork',
+        click: () => handleWidgetCommand('glass-artwork'),
+      },
+      {
+        label: 'Фон стекла: своя картинка…',
+        type: 'checkbox',
+        checked: config.get('glass_backdrop') === 'image',
+        click: () => handleWidgetCommand('glass-image'),
+      },
+      {
+        label: 'Фон стекла: снимок экрана',
+        type: 'checkbox',
+        checked: config.get('glass_backdrop') === 'snapshot',
+        click: () => handleWidgetCommand('glass-snapshot'),
+      },
+      {
+        label: 'Стеклянный вид',
+        type: 'checkbox',
+        checked: Boolean(config.get('widget_glass')),
+        click: () => handleWidgetCommand('toggle-glass'),
+      },
+    ]),
     {
       label: 'Показывать в панели задач',
       type: 'checkbox',
@@ -660,6 +698,9 @@ async function pickGlassImage() {
  */
 async function captureWidgetBackdrop() {
   if (!widgetWindow || widgetWindow.isDestroyed()) return;
+  // На маке линзы нет, а лишний захват экрана поднял бы системный запрос
+  // разрешения на запись экрана — там снимок не нужен вовсе.
+  if (process.platform === 'darwin') return;
   if (!config.get('widget_glass')) return;
   if (capturingBackdrop) return;
   capturingBackdrop = true;
@@ -681,10 +722,10 @@ async function captureWidgetBackdrop() {
     if (!source || source.thumbnail.isEmpty()) return;
 
     const shot = source.thumbnail.crop({
-      x: Math.max(0, bounds.x - display.bounds.x + WIDGET_PAD),
-      y: Math.max(0, bounds.y - display.bounds.y + WIDGET_PAD),
-      width: Math.max(1, bounds.width - WIDGET_PAD * 2),
-      height: Math.max(1, bounds.height - WIDGET_PAD * 2),
+      x: Math.max(0, bounds.x - display.bounds.x + widgetPad()),
+      y: Math.max(0, bounds.y - display.bounds.y + widgetPad()),
+      width: Math.max(1, bounds.width - widgetPad() * 2),
+      height: Math.max(1, bounds.height - widgetPad() * 2),
     });
     sendToWidget('widget:backdrop', shot.toDataURL());
   } catch (err) {
@@ -1070,6 +1111,8 @@ function handleWidgetCommand(command, value) {
     case 'settings': showMainWindow(); playerCall('openSettings'); break;
     case 'hide-widget': minimizeWidget(); break;
     case 'toggle-glass': {
+      // на маке стекло системное и не выключается — см. glassEnabled()
+      if (process.platform === 'darwin') break;
       config.set('widget_glass', !config.get('widget_glass'));
       config.save();
       sendToWidget('widget:config', widgetConfig());
@@ -1120,11 +1163,12 @@ function widgetConfig() {
     inTaskbar: config.get('widget_in_taskbar'),
     source: activeSource(),
     vkEnabled: Boolean(config.get('vk_enabled')),
-    glass: config.get('widget_glass'),
+    glass: glassEnabled(),
     glassOptions: config.get('glass_options'),
     glassBackdrop: config.get('glass_backdrop'),
     glassImage: config.get('glass_backdrop_image') || wallpaperPath,
     systemGlass: ['darwin', 'win32'].includes(process.platform),
+    platform: process.platform,
     wallpaper: wallpaperPath,
     opacity: config.get('widget_opacity'),
     authorized: config.isAuthorized(),
@@ -1136,6 +1180,8 @@ function applyRuntimeSettings() {
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.setOpacity(config.get('widget_opacity'));
     widgetWindow.setAlwaysOnTop(config.get('widget_always_on_top'), 'screen-saver');
+    // материал стекла на маке меняется без пересоздания окна
+    if (macSystemGlass()) widgetWindow.setVibrancy(config.get('mac_vibrancy') || 'hud');
     applyWidgetSize();
     sendToWidget('widget:config', widgetConfig());
   }

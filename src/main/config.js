@@ -68,6 +68,11 @@ const DEFAULTS = {
     rimIntensity: 0.34,
     specular: 0.6,
   },
+  // Только macOS: материал системного размытия под виджетом. Чем «легче»
+  // материал, тем прозрачнее стекло: 'hud' и 'popover' почти не затемняют,
+  // 'under-window' и 'sheet' — самые плотные. Полный список значений —
+  // в документации BrowserWindow.vibrancy.
+  mac_vibrancy: 'hud',
   // Стартовать со скрытым большим окном (виджет + трей)
   start_hidden: true,
   // Графический бэкенд на Linux: x11 (через XWayland — работает везде),
@@ -177,6 +182,10 @@ function update(patch) {
   if (patch.source !== undefined) {
     const source = String(patch.source);
     if (['ym', 'vk'].includes(source)) data.source = source;
+  }
+  if (patch.mac_vibrancy !== undefined) {
+    const value = patch.mac_vibrancy;
+    data.mac_vibrancy = value ? String(value) : null;
   }
   if (patch.glass_backdrop !== undefined) {
     const mode = String(patch.glass_backdrop);
