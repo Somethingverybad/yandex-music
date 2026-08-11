@@ -139,6 +139,10 @@ src/
 - [Llistochek](https://github.com/llistochek) — [yandex-music-downloader](https://github.com/llistochek/yandex-music-downloader).
 - [MarshalX](https://github.com/MarshalX) — библиотека [yandex-music](https://github.com/MarshalX/yandex-music) и сервис [ym.marshal.dev](https://ym.marshal.dev).
 
+## Лицензия
+
+MIT. Проект производный: `src/inject/inject.js` перенесён из [ya-music-desktop](https://github.com/cptn73m0/ya-music-desktop), а оптика стекла — из [Liquid Glass for GNOME Shell](https://github.com/ryohsuke1231/liquid-glass); оба под MIT. Полные тексты и перечень заимствований — в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## Отказ от ответственности
 
 Приложение предназначено для личного использования и скачивания контента, к которому у вас есть доступ. Автор не несёт ответственности за нарушение условий использования Яндекс Музыки или авторских прав.
