@@ -63,27 +63,41 @@
    */
   function activeMedia() {
     var list = Array.prototype.slice.call(document.querySelectorAll('audio, video'));
-    if (mediaEl && mediaEl.isConnected && list.indexOf(mediaEl) < 0) list.push(mediaEl);
+    // ВК создаёт плеер через new Audio() и в документ его не вставляет,
+    // поэтому querySelectorAll его не видит — элемент даёт перехват play().
+    if (mediaEl && list.indexOf(mediaEl) < 0) list.push(mediaEl);
 
-    var playable = list.filter(function (el) {
-      return isFinite(el.duration) && el.duration > 0;
-    });
-
-    var playing = playable.filter(function (el) { return !el.paused; });
+    // Играющий элемент важнее всех прочих признаков: при потоковой отдаче
+    // duration какое-то время равна NaN, и по ней элемент отбрасывать нельзя
+    var playing = list.filter(function (el) { return !el.paused; });
     if (playing.length) {
       mediaEl = playing[0];
       return mediaEl;
     }
 
-    var started = playable.filter(function (el) { return el.currentTime > 0; });
+    var started = list.filter(function (el) { return el.currentTime > 0; });
     if (started.length) {
       started.sort(function (a, b) { return b.currentTime - a.currentTime; });
       mediaEl = started[0];
       return mediaEl;
     }
 
-    if (mediaEl && mediaEl.isConnected) return mediaEl;
+    // Дальше — только пустые элементы: у ЯМ это пул под следующий трек,
+    // поэтому предпочитаем тот, что уже был в деле
+    if (mediaEl) return mediaEl;
     return list.length ? list[0] : null;
+  }
+
+  /** Кортеж текущей аудиозаписи ВК из плеера страницы. */
+  function currentVkTuple() {
+    var ap = window.ap;
+    if (!ap || typeof ap.getCurrentAudio !== 'function') return null;
+    try {
+      var tuple = ap.getCurrentAudio();
+      return tuple && tuple.length ? tuple : null;
+    } catch (err) {
+      return null;
+    }
   }
 
   /* ---------- DOM плеер-бара ---------- */
@@ -137,6 +151,9 @@
     },
 
     vk: {
+      // Кнопки ВК опознаются менее уверенно, чем медиа-элемент: play/pause
+      // идут через него, а клик по кнопке остаётся запасным вариантом
+      preferMediaElement: true,
       selectors: {
         play: ['.top_audio_player_play', '.audio_page_player_play', '[data-testid="audioplayer_play"]'],
         next: ['.top_audio_player_next', '[data-testid="audioplayer_next"]'],
@@ -151,16 +168,31 @@
         prev: ['предыдущая', 'предыдущий трек', 'назад', 'previous'],
         like: ['добавить', 'добавить к себе', 'удалить', 'удалить из моей музыки'],
       },
+      /**
+       * Рекламная вставка между треками. Файл приходит с того же CDN, что и
+       * музыка, поэтому сетевой блокировкой её не отличить — зато в кортеже
+       * аудиозаписи есть поле с параметрами рекламы, а у самой вставки нет
+       * нормальных id владельца и трека.
+       */
+      detectAd: function () {
+        var tuple = currentVkTuple();
+        // У обычных треков поле с параметрами рекламы тоже заполнено —
+        // одного его наличия мало. Рекламная вставка не адресуется как
+        // аудиозапись: у неё нет ни id, ни владельца.
+        if (tuple && tuple.length > 1 && (!tuple[0] || !tuple[1] || String(tuple[1]) === '0')) {
+          return { title: String(tuple[3] || 'реклама'), reason: 'нет id' };
+        }
+        var marker = document.querySelector(
+          '.audio_page_player_ads, .top_audio_player_ads, [class*="audio_ads"]'
+        );
+        return marker ? { title: 'реклама', reason: 'разметка' } : null;
+      },
+
       /** id трека в ВК — «ownerId_audioId»: им же адресуется API. */
       trackId: function () {
-        var ap = window.ap;
-        if (ap && typeof ap.getCurrentAudio === 'function') {
-          try {
-            var tuple = ap.getCurrentAudio();
-            // кортеж аудиозаписи: [0] — id, [1] — id владельца
-            if (tuple && tuple.length > 1) return tuple[1] + '_' + tuple[0];
-          } catch (err) { /* ниже — по DOM */ }
-        }
+        // кортеж аудиозаписи: [0] — id, [1] — id владельца
+        var tuple = currentVkTuple();
+        if (tuple && tuple.length > 1) return tuple[1] + '_' + tuple[0];
         var el = query(PROFILE.selectors.current);
         return el ? el.getAttribute('data-full-id') : null;
       },
@@ -297,18 +329,29 @@
     getState: readState,
 
     play: function () {
-      if (call('play')) return true;
-      if (clickButton('play')) return true;
+      if (call('play')) return 'mediaSession';
+      if (PROFILE.preferMediaElement) {
+        var media = activeMedia();
+        if (media) { media.play(); return 'media'; }
+      }
+      if (clickButton('play')) return 'button';
       var el = activeMedia();
-      if (el) { el.play(); return true; }
+      if (el) { el.play(); return 'media'; }
       return false;
     },
 
     pause: function () {
-      if (call('pause')) return true;
-      if (clickButton('play')) return true;
+      if (call('pause')) return 'mediaSession';
+      // У ВК кнопки плеер-бара приходится угадывать по классам, а клик по
+      // не той кнопке выглядел бы как успех. Медиа-элемент надёжнее:
+      // он останавливает звук независимо от вёрстки.
+      if (PROFILE.preferMediaElement) {
+        var media = activeMedia();
+        if (media) { media.pause(); return 'media'; }
+      }
+      if (clickButton('play')) return 'button';
       var el = activeMedia();
-      if (el) { el.pause(); return true; }
+      if (el) { el.pause(); return 'media'; }
       return false;
     },
 
@@ -360,6 +403,72 @@
     },
   };
 
+  /* ---------- пропуск рекламы ---------- */
+
+  var adSkipAt = 0;      // когда пробовали в последний раз
+  var adMuted = false;   // мы ли заглушили звук
+  var adDiagAt = '';     // по какому треку уже писали диагностику
+
+  /**
+   * Разовая сводка по треку: без неё признаки рекламной вставки приходится
+   * угадывать, а ошибка стоит дорого — обычный трек будет перескакивать.
+   */
+  function logVkTrackShape() {
+    if (!PROFILE.detectAd || !window.__ymHost) return;
+    var tuple = currentVkTuple();
+    if (!tuple) return;
+    var key = String(tuple[1]) + '_' + String(tuple[0]);
+    if (key === adDiagAt) return;
+    adDiagAt = key;
+    var ads;
+    try { ads = JSON.stringify(tuple[15]); } catch (err) { ads = '<?>'; }
+    window.__ymHost.log('ВК трек ' + key + ' «' + String(tuple[3] || '') + '»'
+      + ' flags=' + String(tuple[10]) + ' ads=' + String(ads).slice(0, 220));
+  }
+
+  /**
+   * Рекламную вставку сначала глушим и проматываем в конец, и только если
+   * это не помогло — переключаем трек: перемотка не сбивает очередь
+   * воспроизведения, а «следующий» может увести с нужного места плейлиста.
+   *
+   * Выключается настройкой блокировщика рекламы (window.__ymSkipAds).
+   */
+  function skipAdIfPlaying() {
+    if (!PROFILE.detectAd || window.__ymSkipAds === false) return;
+
+    var ad = PROFILE.detectAd();
+    if (!ad) {
+      // реклама кончилась — снимаем свою заглушку
+      if (adMuted) {
+        var current = activeMedia();
+        if (current) current.muted = false;
+        adMuted = false;
+      }
+      return;
+    }
+
+    var now = Date.now();
+    if (now - adSkipAt < 2000) return;
+    adSkipAt = now;
+
+    var el = activeMedia();
+    if (el) {
+      el.muted = true;
+      adMuted = true;
+      if (isFinite(el.duration) && el.duration > 0) {
+        try { el.currentTime = Math.max(0, el.duration - 0.2); } catch (err) { /* ниже — next */ }
+      }
+    }
+    if (window.__ymHost) {
+      window.__ymHost.log('ВК: пропускаю рекламу «' + ad.title + '» (' + ad.reason + ')');
+    }
+
+    // перемотка у рекламы часто запрещена — тогда уходим на следующий трек
+    setTimeout(function () {
+      if (PROFILE.detectAd()) window.__ymPlayer.next();
+    }, 1200);
+  }
+
   /* ---------- публикация состояния ---------- */
 
   function publish(force) {
@@ -374,7 +483,11 @@
     window.__ymHost.publish(state);
   }
 
-  setInterval(publish, 500);
+  setInterval(function () {
+    logVkTrackShape();
+    skipAdIfPlaying();
+    publish();
+  }, 500);
   publish(true);
 
   return 'ok';

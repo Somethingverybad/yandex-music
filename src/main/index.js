@@ -78,6 +78,11 @@ const AD_URL_PATTERNS = [
   'adfox', 'ads.yandex', 'advertising.yandex', 'direct.yandex',
   'partner2.yandex', '.doubleclick.', 'adservice.', 'googlesyndication',
   '/get-killbill/', '/r/click-ad/', '/ad_', 'adlik', 'adpush',
+  // Рекламная сеть ВК и myTarget: баннеры и счётчики. Сами аудио-вставки
+  // сюда не попадают — они приходят с того же CDN, что и музыка, поэтому
+  // их пропускает плеер (см. detectAd в player-bridge.js).
+  'ads.vk.com', 'ad.mail.ru', 'rs.mail.ru', 'r.mradx.net', 'top-fwz1.mail.ru',
+  'ads.mail.ru', '/al_ads.php',
 ];
 
 let mainWindow = null;
@@ -168,6 +173,10 @@ function playerCall(method, ...args) {
   const argsJson = args.map((a) => JSON.stringify(a)).join(', ');
   return win.webContents
     .executeJavaScript(`window.__ymPlayer && window.__ymPlayer.${method}(${argsJson});`)
+    .then((result) => {
+      console.log('[main] %s: %s -> %s', activeSource(), method, result);
+      return result;
+    })
     .catch((err) => {
       console.warn('[main] playerCall(%s) не удался: %s', method, err.message);
       return false;
@@ -194,6 +203,12 @@ function injectPlayerBridge(contents) {
   contents.executeJavaScript(bridge)
     .then((result) => console.log('[main] player-bridge внедрён:', result))
     .catch((err) => console.warn('[main] player-bridge:', err.message));
+}
+
+/** Пропуск аудиорекламы включён тем же переключателем, что и блокировщик. */
+function applyAdSkip(contents) {
+  const enabled = Boolean(config.get('block_ads'));
+  contents.executeJavaScript(`window.__ymSkipAds = ${enabled};`).catch(() => {});
 }
 
 /** Клиент аудио ВК: живёт в странице, чтобы ходить с её cookie и Origin. */
@@ -321,6 +336,7 @@ function createVkWindow() {
 
   vkWindow.webContents.on('did-finish-load', () => {
     console.log('[main] страница ВК загружена, внедряю мост плеера');
+    applyAdSkip(vkWindow.webContents);
     injectPlayerBridge(vkWindow.webContents);
     injectVkApi(vkWindow.webContents);
   });
@@ -1027,7 +1043,13 @@ function registerIpc() {
   ipcMain.on('player:state', (event, state) => {
     // состояние шлют оба окна; наружу отдаём только активный сервис
     const source = sourceOfContents(event.sender);
+    const previous = stateBySource[source];
     stateBySource[source] = state;
+
+    if (!previous || previous.paused !== state.paused || previous.title !== state.title) {
+      console.log('[main] состояние %s: «%s» %s (id=%s)', source, state.title || '—',
+        state.paused ? 'пауза' : 'играет', state.trackId || '—');
+    }
 
     if (source !== activeSource()) {
       // В неактивном окне нажали play — значит пользователь хочет слушать
@@ -1182,6 +1204,8 @@ function applyRuntimeSettings() {
     widgetWindow.setAlwaysOnTop(config.get('widget_always_on_top'), 'screen-saver');
     // материал стекла на маке меняется без пересоздания окна
     if (macSystemGlass()) widgetWindow.setVibrancy(config.get('mac_vibrancy') || 'hud');
+    const vk = sourceWindow('vk');
+    if (vk) applyAdSkip(vk.webContents);
     applyWidgetSize();
     sendToWidget('widget:config', widgetConfig());
   }
