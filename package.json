@@ -16,7 +16,8 @@
     "dist": "electron-builder",
     "dist:linux": "electron-builder --linux AppImage deb",
     "dist:win": "electron-builder --win nsis portable",
-    "dist:mac": "electron-builder --mac dmg"
+    "dist:mac": "electron-builder --mac dmg",
+    "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js"
   },
   "dependencies": {
     "dbus-next": "^0.9.2",
@@ -25,7 +26,8 @@
   },
   "devDependencies": {
     "electron": "^43.3.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "ffmpeg-static": "^5.3.0"
   },
   "build": {
     "appId": "dev.yamusic.widget",
@@ -33,7 +35,11 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/ffmpeg-static/**"
+    ],
+    "asarUnpack": [
+      "assets/bin/**"
     ],
     "linux": {
       "target": [

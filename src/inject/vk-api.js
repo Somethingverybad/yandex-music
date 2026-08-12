@@ -224,6 +224,28 @@
 
   window.__vkApi = {
     /**
+     * Что лежит за ссылкой на поток: расширение сегментов, их число и
+     * признак шифрования. Нужно, чтобы собирать трек из HLS осознанно,
+     * а не гадать по расширению.
+     */
+    inspect: function (url) {
+      return fetch(url, { credentials: 'include' })
+        .then(function (response) { return response.text(); })
+        .then(function (text) {
+          var lines = text.split('\n').map(function (line) { return line.trim(); });
+          var segments = lines.filter(function (line) { return line && line[0] !== '#'; });
+          var key = lines.filter(function (line) { return line.indexOf('#EXT-X-KEY') === 0; });
+          return {
+            segments: segments.length,
+            first: segments.length ? segments[0].split('?')[0] : '',
+            key: key.length ? key[0] : '',
+            head: lines.slice(0, 8).join(' | '),
+          };
+        })
+        .catch(function (err) { return { error: String(err && err.message) }; });
+    },
+
+    /**
      * Всё, что нужно для скачивания текущего трека: метаданные и прямая
      * ссылка на файл. Ссылка из плеера часто уже протухла, поэтому
      * запрашиваем свежую через reload_audios.

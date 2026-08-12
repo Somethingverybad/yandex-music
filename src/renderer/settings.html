@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+  <title>Настройки</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main>
+    <section>
+      <h2>Загрузки</h2>
+
+      <label class="field">
+        <span class="label">Куда сохранять музыку</span>
+        <span class="row">
+          <input type="text" id="download-path" spellcheck="false">
+          <button class="secondary" id="browse">Выбрать…</button>
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="label">Раскладка по каталогам</span>
+        <select id="layout">
+          <option value="flat">Все файлы в одной папке</option>
+          <option value="artist">Исполнитель</option>
+          <option value="album">Альбом</option>
+          <option value="artist_album">Исполнитель / альбом</option>
+        </select>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="skip-existing">
+        <span>Не перекачивать уже скачанные файлы</span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="block-ads">
+        <span>Блокировать рекламу и пропускать аудиовставки</span>
+      </label>
+    </section>
+
+    <section>
+      <h2>Яндекс Музыка</h2>
+
+      <label class="field">
+        <span class="label">Битрейт mp3</span>
+        <select id="bitrate">
+          <option value="320">320 кбит/с</option>
+          <option value="192">192 кбит/с</option>
+          <option value="128">128 кбит/с</option>
+          <option value="64">64 кбит/с</option>
+        </select>
+        <span class="hint">Берётся лучший доступный вариант не выше указанного.</span>
+      </label>
+
+      <div class="field">
+        <span class="label">Токен для скачивания</span>
+        <div class="status" id="token-status">Проверяю…</div>
+        <span class="row">
+          <input type="password" id="token" placeholder="Вставьте access_token" autocomplete="off">
+          <button class="secondary" id="token-save">Сохранить</button>
+        </span>
+        <span class="hint">
+          Для прослушивания токен не нужен — достаточно войти в окне сервиса.
+          <button class="link" id="token-get">Получить токен</button>
+        </span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Внешний вид виджета</h2>
+
+      <label class="field">
+        <span class="label">Прозрачность <span class="value" id="opacity-value">100%</span></span>
+        <input type="range" id="opacity" min="30" max="100" step="5">
+        <span class="hint">Ниже 30% виджет было бы не поймать мышью.</span>
+      </label>
+
+      <div class="field">
+        <span class="label">Цвет акцента</span>
+        <span class="colors">
+          <label class="color">
+            <input type="color" id="accent-ym">
+            <span>Яндекс Музыка</span>
+          </label>
+          <label class="color">
+            <input type="color" id="accent-vk">
+            <span>ВК Музыка</span>
+          </label>
+          <button class="secondary" id="accent-reset">Сбросить</button>
+        </span>
+        <span class="hint">
+          Активный сервис виден по цвету кнопок виджета — отдельной подписи нет.
+        </span>
+      </div>
+    </section>
+
+    <section>
+      <h2>ВК Музыка</h2>
+
+      <label class="check">
+        <input type="checkbox" id="vk-enabled">
+        <span>Держать окно ВК Музыки открытым</span>
+      </label>
+      <span class="hint">
+        Отдельный токен не нужен: достаточно войти в окне ВК.
+        <button class="link" id="vk-open">Открыть ВК Музыку</button>
+      </span>
+
+      <div class="note" id="vk-note"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span class="saved" id="saved"></span>
+    <button class="secondary" id="close">Закрыть</button>
+    <button id="save">Сохранить</button>
+  </footer>
+
+  <script src="settings.js"></script>
+</body>
+</html>

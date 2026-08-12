@@ -42,6 +42,10 @@ const DEFAULTS = {
   widget_compact: false,
   widget_always_on_top: true,
   widget_opacity: 1,
+  // Цвет акцента виджета для каждого сервиса: по нему видно, чем сейчас
+  // управляет виджет, отдельной подписи нет
+  widget_accent_ym: '#ffdb4d',
+  widget_accent_vk: '#4aa1ff',
   // Показывать виджет в панели задач: свёрнутый виджет возвращается
   // кликом по его иконке, а не только через трей
   widget_in_taskbar: true,
@@ -178,6 +182,12 @@ function update(patch) {
   }
   for (const key of ['widget_x', 'widget_y']) {
     if (patch[key] !== undefined) data[key] = patch[key] === null ? null : Math.round(patch[key]);
+  }
+  for (const key of ['widget_accent_ym', 'widget_accent_vk']) {
+    if (patch[key] === undefined) continue;
+    const color = String(patch[key]).trim();
+    // только #rrggbb: цвет уходит в стили виджета
+    if (/^#[\da-f]{6}$/i.test(color)) data[key] = color.toLowerCase();
   }
   if (patch.source !== undefined) {
     const source = String(patch.source);

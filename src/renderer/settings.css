@@ -1,0 +1,178 @@
+/* Окно настроек: тёмная тема в духе виджета, но без стекла — это обычное
+   окно приложения, а не оверлей поверх сайта. */
+
+:root {
+  --bg: #17171a;
+  --panel: rgba(255, 255, 255, 0.04);
+  --fg: #f2f2f4;
+  --fg-muted: rgba(238, 238, 244, 0.62);
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #ffdb4d;
+  --accent-ink: #18181b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 -apple-system, "Segoe UI", Ubuntu, Roboto, "Helvetica Neue", sans-serif;
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px 8px;
+}
+
+section {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+section:last-child { border-bottom: none; }
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
+.field { display: block; margin-bottom: 14px; }
+.label { display: block; margin-bottom: 5px; font-weight: 500; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+.row input { flex: 1; min-width: 0; }
+
+input[type="text"], input[type="password"], select {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+
+input[type="text"]:focus, input[type="password"]:focus, select:focus {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+select { width: 100%; }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  cursor: pointer;
+}
+
+.check input { accent-color: var(--accent); }
+
+.hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.value { color: var(--fg-muted); font-weight: 400; }
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.colors { display: flex; align-items: center; gap: 14px; }
+
+.color {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.color input[type="color"] {
+  width: 34px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.status {
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.status.ok { color: #86efac; }
+.status.warn { color: #fca5a5; }
+
+.note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+button {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover { filter: brightness(1.08); }
+button:active { transform: scale(0.98); }
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+button.link {
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.saved {
+  flex: 1;
+  font-size: 12px;
+  color: #86efac;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.saved.show { opacity: 1; }
+.saved.error { color: #fca5a5; }

@@ -45,8 +45,43 @@ function service() {
 function setSource(next) {
   source = next === 'vk' ? 'vk' : 'ym';
   document.body.classList.toggle('source-vk', source === 'vk');
+  // «Мне нравится» в ВК пока не работает: кнопку добавления в свою музыку
+  // приходится искать по разметке, и надёжного признака у неё нет.
+  // Пока не разобрались — не показываем кнопку, которая ничего не делает.
+  ui.like.classList.toggle('hidden', source === 'vk');
   ui.cover.title = 'Открыть ' + service().name;
+  applyAccent();
   renderArtist();
+}
+
+/* ---------- цвет интерфейса ---------- */
+
+// Цвет акцента для каждого сервиса; приходит из настроек
+let accents = { ym: '#ffdb4d', vk: '#4aa1ff' };
+
+function hexToRgb(hex) {
+  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(String(hex).trim());
+  if (!match) return null;
+  return [1, 2, 3].map((i) => parseInt(match[i], 16));
+}
+
+/** Осветление для наведения: подмешиваем белый. */
+function lighten(rgb, amount) {
+  return rgb.map((value) => Math.round(value + (255 - value) * amount));
+}
+
+/**
+ * Акцент задаётся на body, а не в таблице стилей: цвет настраивается
+ * пользователем и меняется вместе с активным сервисом.
+ */
+function applyAccent() {
+  const rgb = hexToRgb(accents[source]) || hexToRgb(accents.ym) || [255, 219, 77];
+  const hover = lighten(rgb, 0.22);
+  const style = document.body.style;
+  style.setProperty('--accent', `rgb(${rgb.join(', ')})`);
+  style.setProperty('--accent-hover', `rgb(${hover.join(', ')})`);
+  style.setProperty('--accent-glow', `rgba(${rgb.join(', ')}, 0.42)`);
+  style.setProperty('--accent-knob-glow', `rgba(${rgb.join(', ')}, 0.6)`);
 }
 
 /* ---------- стеклянная линза ---------- */
@@ -254,7 +289,9 @@ window.widgetApi.onConfig(applyConfig);
 
 function applyConfig(cfg) {
   if (!cfg) return;
+  if (cfg.accent) accents = { ...accents, ...cfg.accent };
   if (cfg.source) setSource(cfg.source);
+  else applyAccent();
   document.body.classList.toggle('compact', Boolean(cfg.compact));
   document.body.classList.toggle('glass', cfg.glass !== false);
   document.body.classList.toggle('system-glass', Boolean(cfg.systemGlass) && cfg.glass !== false);

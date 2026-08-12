@@ -3,3 +3,6 @@ dist/
 out/
 *.log
 .DS_Store
+
+# Бинарники ffmpeg: собираются скриптом npm run prepare:ffmpeg
+assets/bin/

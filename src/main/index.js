@@ -30,6 +30,9 @@ const APP_URL = 'https://music.yandex.ru';
 // им только дирижирует. Домен vk.ru, а не vk.com: на нём работает выдача
 // web_token, которой пользуется загрузчик (см. vk-api.js).
 const VK_URL = 'https://vk.ru/audio';
+// Страница выдачи OAuth-токена ЯМ — тот же client_id, что и в inject.js
+const TOKEN_URL = 'https://oauth.yandex.ru/authorize?response_type=token'
+  + '&client_id=23cabbbdc6cd418abb4b39c32c41195d';
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const INJECT_JS = path.join(ROOT_DIR, 'src', 'inject', 'inject.js');
 const PLAYER_BRIDGE_JS = path.join(ROOT_DIR, 'src', 'inject', 'player-bridge.js');
@@ -88,6 +91,7 @@ const AD_URL_PATTERNS = [
 let mainWindow = null;
 let vkWindow = null;
 let widgetWindow = null;
+let settingsWindow = null;
 let tray = null;
 let api = null;
 let downloader = null;
@@ -405,11 +409,14 @@ function setSource(source) {
   config.set('source', next);
   config.save();
 
-  if (next === 'vk' && (!vkWindow || vkWindow.isDestroyed())) {
+  // Окно нужного сервиса могло ещё не подниматься — оно создаётся по
+  // требованию, чтобы не держать в памяти страницу, которой не пользуются
+  if (next === 'vk' && !sourceWindow('vk')) {
     config.set('vk_enabled', true);
     config.save();
     createVkWindow();
   }
+  if (next === 'ym' && !sourceWindow('ym')) createMainWindow();
 
   lastState = stateBySource[next];
   sendToWidget('player:config', { source: next });
@@ -417,6 +424,46 @@ function setSource(source) {
   if (lastState) sendToWidget('player:state', lastState);
   mpris.update(lastState);
   rebuildTrayMenu();
+}
+
+/* ------------------------------------------------------------------ */
+/* Окно настроек                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Настройки живут в своём окне, а не модалкой внутри страницы ЯМ: половина
+ * параметров общая для сервисов, и открывать ради них Яндекс Музыку, когда
+ * слушаешь ВК, бессмысленно.
+ */
+function showSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 560,
+    height: 700,
+    minWidth: 460,
+    minHeight: 520,
+    title: 'Настройки',
+    icon: ICON_PATH,
+    backgroundColor: '#17171a',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(ROOT_DIR, 'src', 'preload', 'settings.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  settingsWindow.loadFile(path.join(ROOT_DIR, 'src', 'renderer', 'settings.html'));
+
+  const win = settingsWindow;
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => { if (settingsWindow === win) settingsWindow = null; });
 }
 
 /** Окно авторизации/получения токена с перехватом access_token. */
@@ -624,7 +671,7 @@ function showWidgetMenu(x, y) {
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Открыть ВК Музыку', click: showVkWindow },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
-    { label: 'Настройки загрузок', click: () => { showMainWindow(); playerCall('openSettings'); } },
+    { label: 'Настройки…', click: showSettingsWindow },
     { type: 'separator' },
     {
       label: 'Компактный вид',
@@ -855,7 +902,7 @@ function trayMenuTemplate() {
       click: toggleWidget,
     },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
-    { label: 'Настройки загрузок', click: () => { showMainWindow(); playerCall('openSettings'); } },
+    { label: 'Настройки…', click: showSettingsWindow },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
   ];
@@ -933,6 +980,10 @@ async function downloadCurrentVkTrack() {
       'window.__vkApi && window.__vkApi.currentTrack();'
     );
     if (!track) throw new Error('Сейчас ничего не играет');
+
+    // ffmpeg тянет сегменты сам, и для ВК важно представляться так же,
+    // как окно приложения, — иначе CDN может отказать
+    track.userAgent = win.webContents.getUserAgent();
 
     sendToWidget('download:progress', { pct: 0, title: track.title });
     const result = await downloader.saveDirectTrack(track);
@@ -1070,6 +1121,36 @@ function registerIpc() {
 
   ipcMain.on('player:log', (_event, message) => console.log('[page]', message));
 
+  /* --- окно настроек --- */
+
+  ipcMain.handle('settings:open-token-page', () => {
+    openAuthWindow(TOKEN_URL);
+    return { ok: true };
+  });
+
+  /*
+   * Предпросмотр: прозрачность и цвет виджета применяются на лету, пока
+   * пользователь двигает ползунок. В файл ничего не пишем — это делает
+   * кнопка «Сохранить», поэтому закрытое без сохранения окно ничего
+   * не меняет насовсем (значения вернутся при следующем запуске).
+   */
+  ipcMain.on('settings:preview', (_event, patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    for (const key of ['widget_opacity', 'widget_accent_ym', 'widget_accent_vk']) {
+      if (patch[key] !== undefined) config.set(key, patch[key]);
+    }
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      widgetWindow.setOpacity(config.get('widget_opacity'));
+      sendToWidget('widget:config', widgetConfig());
+    }
+  });
+
+  ipcMain.on('settings:open-vk', () => showVkWindow());
+
+  ipcMain.on('settings:close', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
+  });
+
   /* --- команды от виджета --- */
 
   ipcMain.on('widget:command', (_event, { command, value }) => handleWidgetCommand(command, value));
@@ -1185,6 +1266,10 @@ function widgetConfig() {
     inTaskbar: config.get('widget_in_taskbar'),
     source: activeSource(),
     vkEnabled: Boolean(config.get('vk_enabled')),
+    accent: {
+      ym: config.get('widget_accent_ym'),
+      vk: config.get('widget_accent_vk'),
+    },
     glass: glassEnabled(),
     glassOptions: config.get('glass_options'),
     glassBackdrop: config.get('glass_backdrop'),
@@ -1338,10 +1423,11 @@ if (!gotLock) {
         sendWidgetGeometry();
       }
     });
-    createMainWindow();
-    // Окно ВК поднимается сразу — иначе виджет не смог бы показать, что
-    // там играет, и переключение источника ждало бы загрузки страницы
-    if (config.get('vk_enabled')) createVkWindow();
+    // Каждое окно сервиса — полноценная страница Chromium (~200 МБ), поэтому
+    // поднимаем только то, которым сейчас пользуются. Второе создаётся при
+    // переключении источника или по команде «Открыть …» из меню.
+    if (activeSource() === 'vk' && config.get('vk_enabled')) createVkWindow();
+    else createMainWindow();
     if (config.get('widget_enabled')) createWidget();
     createTray();
     registerMediaKeys();

@@ -19,6 +19,8 @@ const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 const NodeID3 = require('node-id3');
 
+const ffmpeg = require('./ffmpeg');
+
 const { YmApi } = require('./ym-api');
 
 const MAX_PART_LEN = 64;
@@ -211,11 +213,7 @@ class Downloader {
    */
   async saveDirectTrack(track, { jobId } = {}) {
     if (!track || !track.url) throw new Error('Не удалось получить ссылку на файл');
-    if (/\.m3u8(\?|$)/i.test(track.url)) {
-      // HLS пришлось бы склеивать из сегментов и перекодировать — этого
-      // приложение не делает, а молча сохранять битый файл нельзя
-      throw new Error('Трек отдаётся потоком HLS — скачивание недоступно');
-    }
+    const isHls = /\.m3u8(\?|$)/i.test(track.url);
 
     const asYm = {
       title: track.title,
@@ -242,7 +240,22 @@ class Downloader {
       }
     }
 
-    await this._fetchToFile(track.url, filePath);
+    if (isHls) {
+      if (!ffmpeg.isAvailable()) {
+        throw new Error('Для потоковых треков нужен ffmpeg — он не найден');
+      }
+      const result = await ffmpeg.hlsToMp3(track.url, filePath, {
+        userAgent: track.userAgent || '',
+        referer: 'https://vk.ru/',
+        bitrate: this._config.get('preferred_bitrate'),
+        duration: track.duration,
+        onProgress: (pct) => this._progress({ jobId, current: 0, total: 1, pct, title: track.title }),
+      });
+      if (result.recoded) console.log('[downloader] поток перекодирован в mp3');
+    } else {
+      await this._fetchToFile(track.url, filePath);
+    }
+
     await this._writeTags(filePath, asYm, null, { coverUrl: track.cover });
     this._progress({ jobId, current: 1, total: 1, pct: 100, title: track.title });
 
