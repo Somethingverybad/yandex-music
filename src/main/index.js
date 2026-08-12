@@ -12,6 +12,7 @@
  * приложение живёт в трее и в виджете.
  */
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
 const {
   app, BrowserWindow, ipcMain, Menu, Tray, dialog, shell,
@@ -671,6 +672,7 @@ function showWidgetMenu(x, y) {
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Открыть ВК Музыку', click: showVkWindow },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
+    { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
     { type: 'separator' },
     {
@@ -731,6 +733,18 @@ function showWidgetMenu(x, y) {
     x: Math.round(x || 0),
     y: Math.round(y || 0),
   });
+}
+
+/** Открывает каталог загрузок в файловом менеджере системы. */
+async function openDownloadsFolder() {
+  const target = config.get('download_path');
+  try {
+    await fsp.mkdir(target, { recursive: true });
+  } catch (err) {
+    console.warn('[main] не удалось создать каталог загрузок: %s', err.message);
+  }
+  const error = await shell.openPath(target);
+  if (error) console.warn('[main] не удалось открыть папку загрузок: %s', error);
 }
 
 /** Выбор своей картинки под стекло — альтернатива снимку экрана без запросов. */
@@ -902,6 +916,7 @@ function trayMenuTemplate() {
       click: toggleWidget,
     },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
+    { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
@@ -1178,6 +1193,7 @@ function handleWidgetCommand(command, value) {
     case 'like': playerCall('like'); break;
     case 'download': downloadCurrentTrack(); break;
     case 'refresh-backdrop': captureWidgetBackdrop(); break;
+    case 'open-downloads': openDownloadsFolder(); break;
     case 'set-source': setSource(value); break;
     case 'toggle-source': setSource(activeSource() === 'ym' ? 'vk' : 'ym'); break;
     case 'open-service': (activeSource() === 'vk' ? showVkWindow : showMainWindow)(); break;

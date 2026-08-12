@@ -207,11 +207,31 @@
       accessKey: String(tuple[FIELD.ACCESS_KEY] || ''),
       title: decodeEntities(String(tuple[FIELD.TITLE] || '')),
       artist: decodeEntities(String(tuple[FIELD.PERFORMER] || '')),
-      album: decodeEntities(String((tuple[FIELD.ALBUM] && tuple[FIELD.ALBUM][1]) || '')),
+      album: albumTitle(tuple[FIELD.ALBUM]),
       duration: Number(tuple[FIELD.DURATION]) || 0,
       cover: cover || '',
       url: String(tuple[FIELD.URL] || ''),
     };
+  }
+
+  /**
+   * В поле альбома у ВК лежит ссылка на плейлист — [owner_id, album_id,
+   * access_key]; названия там нет. Числовой id и hex-ключ доступа в теге
+   * альбома выглядят как мусор, поэтому берём значение, только если оно
+   * похоже на настоящее название.
+   */
+  function albumTitle(value) {
+    if (!value) return '';
+    var list = Object.prototype.toString.call(value) === '[object Array]' ? value : [value];
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i] !== 'string') continue;
+      var text = list[i].trim();
+      if (!text) continue;
+      if (/^[\d\s_-]+$/.test(text)) continue;          // идентификатор
+      if (/^[\da-f]{12,}$/i.test(text)) continue;       // ключ доступа
+      return decodeEntities(text);
+    }
+    return '';
   }
 
   /** В названиях приходят HTML-сущности вроде &amp; */

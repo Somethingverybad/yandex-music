@@ -12,8 +12,11 @@
  * с битрейтом из настроек.
  */
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
 const { spawn } = require('child_process');
+
+const hls = require('./hls');
 
 /**
  * Путь к бинарнику. Внутри собранного приложения ресурсы лежат в архиве
@@ -74,9 +77,11 @@ function run(args, { onProgress, duration } = {}) {
     });
 
     child.on('error', (err) => reject(new Error('ffmpeg не запустился: ' + err.message)));
-    child.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(errorTail.trim().split('\n').pop() || `ffmpeg завершился с кодом ${code}`));
+    child.on('close', (code, signal) => {
+      if (code === 0) return resolve();
+      const tail = errorTail.trim().split('\n').pop();
+      reject(new Error(tail
+        || (signal ? `ffmpeg убит сигналом ${signal}` : `ffmpeg завершился с кодом ${code}`)));
     });
   });
 }
@@ -93,26 +98,39 @@ async function hlsToMp3(url, outPath, options = {}) {
     userAgent = '', referer = '', bitrate = 320, duration = 0, onProgress = null,
   } = options;
 
-  const input = [
-    '-hide_banner', '-loglevel', 'error', '-stats',
-    // без постоянного соединения: сегменты ВК раздаёт по одному
-    '-http_persistent', '0',
-  ];
-  if (userAgent) input.push('-user_agent', userAgent);
-  if (referer) input.push('-headers', `Referer: ${referer}\r\n`);
-  input.push('-i', url, '-vn', '-map', 'a:0');
+  const headers = {};
+  if (userAgent) headers['User-Agent'] = userAgent;
+  if (referer) headers.Referer = referer;
 
-  const copyArgs = [...input, '-c:a', 'copy', '-f', 'mp3', '-y', outPath];
+  // Сегменты собираем сами (см. hls.js) — ffmpeg на плейлисте ВК падает.
+  // Скачивание считаем за три четверти работы, распаковку — за оставшуюся.
+  const temp = outPath + '.ts';
   try {
-    await run(copyArgs, { onProgress, duration });
-    return { path: outPath, recoded: false };
-  } catch (err) {
-    console.log('[ffmpeg] поток не mp3 (%s) — перекодирую', err.message);
-  }
+    const { segments } = await hls.download(url, temp, {
+      headers,
+      onProgress: (pct) => onProgress && onProgress(Math.round(pct * 0.75)),
+    });
+    console.log('[hls] собрано сегментов: %d', segments);
 
-  const encodeArgs = [...input, '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, '-y', outPath];
-  await run(encodeArgs, { onProgress, duration });
-  return { path: outPath, recoded: true };
+    const input = ['-hide_banner', '-loglevel', 'error', '-stats', '-i', temp, '-vn', '-map', 'a:0'];
+    const progress = (pct) => onProgress && onProgress(75 + Math.round(pct * 0.25));
+
+    // Внутри контейнера у ВК обычно уже mp3 — тогда обходимся без
+    // перекодирования и не теряем качество
+    try {
+      await run([...input, '-c:a', 'copy', '-f', 'mp3', '-y', outPath],
+        { onProgress: progress, duration });
+      return { path: outPath, recoded: false };
+    } catch (err) {
+      console.log('[ffmpeg] поток не mp3 (%s) — перекодирую', err.message);
+    }
+
+    await run([...input, '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, '-y', outPath],
+      { onProgress: progress, duration });
+    return { path: outPath, recoded: true };
+  } finally {
+    await fsp.unlink(temp).catch(() => {});
+  }
 }
 
 module.exports = { hlsToMp3, isAvailable, binaryPath };
