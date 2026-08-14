@@ -24,9 +24,19 @@ function releaseStream() {
   hls = null;
 }
 
-function load(next, autoplay) {
+function load(next, autoplay, startAt) {
   track = next || null;
   releaseStream();
+
+  // после перезапуска трек заряжается с того места, где его оставили;
+  // выставить позицию можно только когда известна длительность
+  const seekTo = Number(startAt) || 0;
+  if (seekTo > 0) {
+    audio.addEventListener('loadedmetadata', function once() {
+      audio.removeEventListener('loadedmetadata', once);
+      if (isFinite(audio.duration) && seekTo < audio.duration) audio.currentTime = seekTo;
+    });
+  }
 
   if (!track || !track.url) {
     audio.removeAttribute('src');
@@ -112,7 +122,9 @@ audio.addEventListener('error', () => {
 
 window.playerHost.onCommand(({ command, value }) => {
   switch (command) {
-    case 'load': load(value && value.track, value && value.autoplay !== false); break;
+    case 'load':
+      load(value && value.track, value && value.autoplay !== false, value && value.startAt);
+      break;
     case 'play': play(); break;
     case 'pause': audio.pause(); break;
     case 'toggle': audio.paused ? play() : audio.pause(); break;

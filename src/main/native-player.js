@@ -10,12 +10,18 @@
  * Ссылка на файл живёт недолго, поэтому перед каждым треком её запрашиваем
  * заново — по идентификатору из очереди.
  */
+const fs = require('fs');
 const path = require('path');
-const { BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 
 const vkApi = require('./vk-api');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
+
+// Очередь лежит отдельным файлом, а не в настройках: в ней бывают сотни
+// треков, и перезаписывать из-за них весь settings.json незачем
+const STATE_FILE = 'vk-queue.json';
+const MAX_SAVED = 500;
 
 let win = null;
 let ready = false;
@@ -73,9 +79,9 @@ function send(command, value) {
 /* ------------------------------------------------------------------ */
 
 /** Заряжает трек по позиции в очереди, попутно обновив ссылку на файл. */
-async function loadIndex(position, autoplay = true) {
-  if (position < 0 || position >= queue.length) return false;
-  index = position;
+async function loadIndex(at, autoplay = true, startAt = 0) {
+  if (at < 0 || at >= queue.length) return false;
+  index = at;
   const item = queue[index];
 
   try {
@@ -83,12 +89,75 @@ async function loadIndex(position, autoplay = true) {
     if (!fresh || !fresh.url) throw new Error('нет ссылки на файл');
     // метаданные из очереди полнее: там есть альбом и обложка из выдачи
     queue[index] = { ...item, ...fresh };
-    send('load', { track: queue[index], autoplay });
+    send('load', { track: queue[index], autoplay, startAt });
     return true;
   } catch (err) {
     if (hooks.onError) hooks.onError(`${item.artist} — ${item.title}: ${err.message}`);
     return false;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Память между запусками                                              */
+/* ------------------------------------------------------------------ */
+
+let position = 0;        // где остановились в текущем треке
+let saveTimer = null;
+
+function statePath() {
+  return path.join(app.getPath('userData'), STATE_FILE);
+}
+
+/**
+ * Сохраняет очередь, позицию в ней и место в треке.
+ *
+ * Раньше, где остановились, помнил сайт; со своим плеером помнить приходится
+ * самим, иначе после перезапуска пусто. Ссылки на файлы не храним — они
+ * протухают за считанные часы и всё равно запрашиваются заново.
+ */
+function persist() {
+  clearTimeout(saveTimer);
+  // после смены трека и на паузе состояние сыплется часто, поэтому пишем
+  // файл не чаще раза в пару секунд
+  saveTimer = setTimeout(() => {
+    if (!queue.length || index < 0) return;
+    const payload = {
+      index,
+      position,
+      tracks: queue.slice(0, MAX_SAVED).map(({ id, accessKey, title, artist, duration, cover }) => (
+        { id, accessKey, title, artist, duration, cover }
+      )),
+    };
+    try {
+      fs.writeFileSync(statePath(), JSON.stringify(payload), 'utf8');
+    } catch (err) {
+      console.warn('[native] не удалось сохранить очередь: %s', err.message);
+    }
+  }, 2000);
+}
+
+/**
+ * Возвращает последнюю очередь. Трек заряжается на паузе и с того места,
+ * где его оставили: продолжать самому — дело пользователя.
+ */
+function restore() {
+  let saved = null;
+  try {
+    const file = statePath();
+    if (!fs.existsSync(file)) return false;
+    saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    console.warn('[native] не удалось прочитать очередь: %s', err.message);
+    return false;
+  }
+
+  if (!saved || !Array.isArray(saved.tracks) || !saved.tracks.length) return false;
+
+  queue = saved.tracks;
+  const at = Number.isInteger(saved.index) ? saved.index : 0;
+  console.log('[native] восстановлена очередь: %d треков, позиция %d', queue.length, at + 1);
+  loadIndex(Math.max(0, Math.min(at, queue.length - 1)), false, Number(saved.position) || 0);
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -107,6 +176,10 @@ function init(options = {}) {
   });
 
   ipcMain.on('native:state', (_event, state) => {
+    if (state && state.hasTrack) {
+      position = state.position || 0;
+      persist();
+    }
     if (hooks.onState) hooks.onState(state);
   });
 
@@ -161,4 +234,4 @@ function shutdown() {
   ready = false;
 }
 
-module.exports = { init, playQueue, command, hasTrack, stop, shutdown };
+module.exports = { init, playQueue, command, hasTrack, stop, shutdown, restore };

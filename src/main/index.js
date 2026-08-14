@@ -1559,6 +1559,9 @@ if (!gotLock) {
       onState: (state) => handlePlayerState('vk', state),
       onError: (message) => sendToWidget('download:done', { ok: false, error: message }),
     });
+    // возвращаем последнюю очередь: трек встаёт на паузу там, где его
+    // оставили, — раньше это помнил сайт, теперь помним сами
+    if (vkNative() && config.get('vk_enabled')) nativePlayer.restore();
     wallpaper.find().then((found) => {
       wallpaperPath = found;
       if (found) {
