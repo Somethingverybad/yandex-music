@@ -1,6 +1,6 @@
 {
-  "name": "ya-music-widget",
-  "productName": "YaMusic Widget",
+  "name": "theif",
+  "productName": "TheIf",
   "version": "1.0.0",
   "description": "Кроссплатформенный клиент Яндекс Музыки: мини-плеер-виджет поверх окон и скачивание треков",
   "main": "src/main/index.js",
@@ -30,8 +30,8 @@
     "ffmpeg-static": "^5.3.0"
   },
   "build": {
-    "appId": "dev.yamusic.widget",
-    "productName": "YaMusic Widget",
+    "appId": "dev.theif.app",
+    "productName": "TheIf",
     "files": [
       "src/**/*",
       "assets/**/*",
@@ -55,7 +55,7 @@
       "synopsis": "Мини-плеер Яндекс Музыки",
       "desktop": {
         "entry": {
-          "Name": "YaMusic Widget",
+          "Name": "TheIf",
           "Comment": "Мини-плеер Яндекс Музыки поверх окон",
           "Keywords": "music;player;yandex;"
         }

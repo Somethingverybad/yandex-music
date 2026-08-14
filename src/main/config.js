@@ -3,9 +3,9 @@
  * Настройки приложения и хранение OAuth-токена.
  *
  * Настройки — JSON в каталоге профиля Electron (app.getPath('userData')):
- *   Linux   ~/.config/YaMusic Widget/settings.json
- *   Windows %APPDATA%\YaMusic Widget\settings.json
- *   macOS   ~/Library/Application Support/YaMusic Widget/settings.json
+ *   Linux   ~/.config/TheIf/settings.json
+ *   Windows %APPDATA%\TheIf\settings.json
+ *   macOS   ~/Library/Application Support/TheIf/settings.json
  *
  * Токен шифруется через safeStorage (на Linux — gnome-libsecret/kwallet,
  * на Windows — DPAPI, на macOS — Keychain) и лежит рядом в token.bin.

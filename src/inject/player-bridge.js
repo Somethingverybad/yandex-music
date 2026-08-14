@@ -26,6 +26,8 @@
   var positionAt = 0;         // performance.now() на момент его установки
   var mediaEl = null;         // последний игравший медиа-элемент
   var lastPayload = '';
+  var paused = true;          // от него зависит частота опроса
+  var watched = null;         // элемент, на события которого мы подписаны
 
   /* ---------- перехват mediaSession ---------- */
 
@@ -86,6 +88,24 @@
     // поэтому предпочитаем тот, что уже был в деле
     if (mediaEl) return mediaEl;
     return list.length ? list[0] : null;
+  }
+
+  /**
+   * Подписка на события того элемента, который звучит: пауза, старт и смена
+   * трека приходят сразу, без ожидания следующего опроса. Благодаря этому
+   * опрос можно держать редким.
+   */
+  function watchMedia(el) {
+    if (!el || el === watched) return;
+    if (watched) {
+      ['play', 'pause', 'ended', 'loadedmetadata'].forEach(function (name) {
+        watched.removeEventListener(name, wake);
+      });
+    }
+    watched = el;
+    ['play', 'pause', 'ended', 'loadedmetadata'].forEach(function (name) {
+      el.addEventListener(name, wake);
+    });
   }
 
   /** Кортеж текущей аудиозаписи ВК из плеера страницы. */
@@ -268,6 +288,7 @@
 
   function readState() {
     var el = activeMedia();
+    watchMedia(el);
     var meta = readMetadata();
 
     var duration = 0;
@@ -407,25 +428,6 @@
 
   var adSkipAt = 0;      // когда пробовали в последний раз
   var adMuted = false;   // мы ли заглушили звук
-  var adDiagAt = '';     // по какому треку уже писали диагностику
-
-  /**
-   * Разовая сводка по треку: без неё признаки рекламной вставки приходится
-   * угадывать, а ошибка стоит дорого — обычный трек будет перескакивать.
-   */
-  function logVkTrackShape() {
-    if (!PROFILE.detectAd || !window.__ymHost) return;
-    var tuple = currentVkTuple();
-    if (!tuple) return;
-    var key = String(tuple[1]) + '_' + String(tuple[0]);
-    if (key === adDiagAt) return;
-    adDiagAt = key;
-    var ads;
-    try { ads = JSON.stringify(tuple[15]); } catch (err) { ads = '<?>'; }
-    window.__ymHost.log('ВК трек ' + key + ' «' + String(tuple[3] || '') + '»'
-      + ' flags=' + String(tuple[10]) + ' ads=' + String(ads).slice(0, 220));
-  }
-
   /**
    * Рекламную вставку сначала глушим и проматываем в конец, и только если
    * это не помогло — переключаем трек: перемотка не сбивает очередь
@@ -474,6 +476,7 @@
   function publish(force) {
     if (!window.__ymHost) return;
     var state = readState();
+    paused = state.paused;
     // позицию из сравнения исключаем — она меняется постоянно
     var signature = JSON.stringify([state.title, state.artist, state.album, state.artwork,
       state.paused, Math.round(state.duration), state.trackId, state.liked,
@@ -483,12 +486,35 @@
     window.__ymHost.publish(state);
   }
 
-  setInterval(function () {
-    logVkTrackShape();
+  /*
+   * Опрос подстраивается под воспроизведение. Каждый проход перебирает DOM
+   * страницы сервиса, а это дорого: во время паузы позиция не движется и
+   * проверять её дважды в секунду незачем. О смене состояния сообщает сам
+   * медиа-элемент — на события подписываемся в watchMedia().
+   */
+  var ACTIVE_INTERVAL = 500;
+  var IDLE_INTERVAL = 2000;
+  var tickTimer = null;
+
+  function tick() {
     skipAdIfPlaying();
     publish();
-  }, 500);
+    schedule();
+  }
+
+  function schedule() {
+    clearTimeout(tickTimer);
+    tickTimer = setTimeout(tick, paused ? IDLE_INTERVAL : ACTIVE_INTERVAL);
+  }
+
+  /** Немедленно сообщить о смене состояния и вернуться к частому опросу. */
+  function wake() {
+    publish(true);
+    schedule();
+  }
+
   publish(true);
+  schedule();
 
   return 'ok';
 })();

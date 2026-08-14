@@ -202,11 +202,16 @@ body.glass.has-art .glass-sheen { opacity: 1; }
 }
 
 /* бегущая строка включается только когда текст не влезает */
+/* Анимация крутится только во время воспроизведения: на паузе она гоняла бы
+   перерисовку впустую, а виджет висит поверх окон постоянно */
 .marquee.scrolling span {
   display: inline-block;
   padding-right: 32px;
   animation: marquee 12s linear infinite;
+  animation-play-state: paused;
 }
+
+body.playing .marquee.scrolling span { animation-play-state: running; }
 
 @keyframes marquee {
   0%, 12% { transform: translateX(0); }

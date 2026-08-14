@@ -25,8 +25,8 @@ function start({ onCommand, getState }) {
 
   try {
     player = Player({
-      name: 'yamusicwidget',
-      identity: 'YaMusic Widget',
+      name: 'theif',
+      identity: 'TheIf',
       supportedInterfaces: ['player'],
       supportedUriSchemes: [],
       supportedMimeTypes: [],

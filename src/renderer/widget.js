@@ -202,7 +202,7 @@ function renderArtist() {
 function renderTrack() {
   ui.title.textContent = state.hasTrack ? (state.title || 'Без названия') : 'Ничего не играет';
   renderArtist();
-  document.title = state.hasTrack ? `${state.artist} — ${state.title}` : 'YaMusic Widget';
+  document.title = state.hasTrack ? `${state.artist} — ${state.title}` : 'TheIf';
 
   if (state.artwork) {
     if (ui.coverImg.src !== state.artwork) ui.coverImg.src = state.artwork;
@@ -234,6 +234,8 @@ function renderTrack() {
 function renderPlayback() {
   ui.playIcon.firstElementChild.setAttribute('d', state.paused ? PLAY_PATH : PAUSE_PATH);
   ui.play.title = state.paused ? 'Играть (Пробел)' : 'Пауза (Пробел)';
+  // бегущая строка привязана к этому классу — на паузе она замирает
+  document.body.classList.toggle('playing', !state.paused);
 }
 
 function renderProgress() {
@@ -247,11 +249,13 @@ function renderProgress() {
 
 /* ---------- локальный тик позиции ---------- */
 
+// Полсекунды хватает: на экране всё равно только целые секунды, а перерисовка
+// прогресса идёт в окне, которое висит поверх всех остальных
 setInterval(() => {
   if (state.paused || seeking || !state.duration) return;
-  state.position = Math.min(state.position + 0.25, state.duration);
+  state.position = Math.min(state.position + 0.5, state.duration);
   renderProgress();
-}, 250);
+}, 500);
 
 /* ---------- события от main ---------- */
 

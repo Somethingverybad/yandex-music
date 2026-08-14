@@ -1,6 +1,6 @@
 'use strict';
 /**
- * YaMusic Widget — точка входа Electron.
+ * TheIf — точка входа Electron.
  *
  * Приложение состоит из двух окон:
  *   - «большое» окно music.yandex.ru — оно же аудио-движок и полноценный
@@ -39,6 +39,8 @@ const INJECT_JS = path.join(ROOT_DIR, 'src', 'inject', 'inject.js');
 const PLAYER_BRIDGE_JS = path.join(ROOT_DIR, 'src', 'inject', 'player-bridge.js');
 const VK_API_JS = path.join(ROOT_DIR, 'src', 'inject', 'vk-api.js');
 const ICON_PATH = path.join(ROOT_DIR, 'assets', 'icon.png');
+// Монохромный силуэт для строки меню macOS; рисуется scripts/make-tray-icon.js
+const TRAY_TEMPLATE_PATH = path.join(ROOT_DIR, 'assets', 'trayTemplate.png');
 
 // Панель + прозрачные поля вокруг неё: тень должна помещаться внутрь окна,
 // иначе она обрезается его границей и в углах остаются тёмные прямоугольники.
@@ -123,6 +125,26 @@ function isAdUrl(url) {
   if (!url) return false;
   const lower = url.toLowerCase();
   return AD_URL_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+
+/**
+ * Картинка, запрошенная спрятанным окном сервиса.
+ *
+ * Такое окно работает аудио-движком, и показывать ему нечего: сотни обложек
+ * и аватарок в памяти пропадают зря. Виджету они не нужны — обложку он берёт
+ * по ссылке из mediaSession и грузит сам.
+ *
+ * Как только окно показывают, блокировка снимается; уже пропущенные места
+ * заполнятся при прокрутке или переходе внутри сервиса.
+ */
+function isHiddenServiceImage(details) {
+  if (details.resourceType !== 'image') return false;
+  for (const win of [mainWindow, vkWindow]) {
+    if (!win || win.isDestroyed()) continue;
+    if (win.webContents.id !== details.webContentsId) continue;
+    return !win.isVisible() || win.isMinimized();
+  }
+  return false;
 }
 
 /** Достаёт access_token из OAuth-редиректа Яндекса. */
@@ -587,7 +609,7 @@ function createWidget() {
       ? { vibrancy: config.get('mac_vibrancy') || 'hud', visualEffectState: 'active' } : {}),
     ...(config.get('widget_glass') && process.platform === 'win32'
       ? { backgroundMaterial: 'acrylic' } : {}),
-    title: 'YaMusic Widget',
+    title: 'TheIf',
     icon: ICON_PATH,
     show: false,
     webPreferences: {
@@ -926,7 +948,7 @@ function trayMenuTemplate() {
 function trayTooltip() {
   return lastState && lastState.title
     ? `${lastState.artist} — ${lastState.title}`
-    : 'YaMusic Widget';
+    : 'TheIf';
 }
 
 function rebuildTrayMenu() {
@@ -941,14 +963,35 @@ function rebuildTrayMenu() {
   tray.setToolTip(trayTooltip());
 }
 
+/**
+ * Значок для строки меню.
+ *
+ * На macOS там ждут template-образ: монохромный силуэт 16 pt, который система
+ * сама красит под тему и подсвечивает при нажатии. Цветная иконка приложения
+ * выглядит рядом с нативными значками чужеродно и крупно. Файл @2x рядом
+ * Electron подхватывает сам.
+ *
+ * На Linux и Windows шаблонных образов нет — там прежняя цветная иконка.
+ */
+function trayImage() {
+  if (process.platform === 'darwin') {
+    const template = nativeImage.createFromPath(TRAY_TEMPLATE_PATH);
+    if (!template.isEmpty()) {
+      template.setTemplateImage(true);
+      return template;
+    }
+  }
+  return nativeImage.createFromPath(ICON_PATH).resize({ width: 32, height: 32 });
+}
+
 async function createTray() {
-  const image = nativeImage.createFromPath(ICON_PATH).resize({ width: 32, height: 32 });
+  const image = trayImage();
 
   // Сначала пробуем собственный StatusNotifierItem: в GNOME он рисуется
   // корректно, в отличие от встроенного Tray
   const started = await traySni.start({
-    id: 'ya-music-widget',
-    title: 'YaMusic Widget',
+    id: 'theif',
+    title: 'TheIf',
     image,
     onActivate: () => showWidget(),
     menuItems: trayMenuTemplate(),
@@ -1320,9 +1363,13 @@ function setupSession() {
   const { session } = require('electron');
   const ses = session.defaultSession;
 
-  // Блокировка рекламных запросов
+  // Блокировка рекламных запросов и картинок в скрытых окнах сервисов
   ses.webRequest.onBeforeRequest((details, callback) => {
     if (config.get('block_ads') && isAdUrl(details.url)) {
+      callback({ cancel: true });
+      return;
+    }
+    if (isHiddenServiceImage(details)) {
       callback({ cancel: true });
       return;
     }
@@ -1331,7 +1378,7 @@ function setupSession() {
 
   // Убираем из User-Agent следы Electron — сайт должен видеть обычный Chrome
   app.userAgentFallback = app.userAgentFallback
-    .replace(/\s?(YaMusic Widget|Electron)\/[\d.]+/g, '');
+    .replace(/\s?(TheIf|Electron)\/[\d.]+/g, '');
 }
 
 function registerMediaKeys() {
@@ -1408,7 +1455,7 @@ process.on('uncaughtException', (error) => {
     return;
   }
   console.error('[main] необработанное исключение:', error);
-  dialog.showErrorBox('YaMusic Widget', message);
+  dialog.showErrorBox('TheIf', message);
 });
 
 process.on('unhandledRejection', (reason) => {
