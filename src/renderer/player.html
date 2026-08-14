@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; media-src https: blob:; connect-src https: blob:;">
+  <title>TheIf player</title>
+</head>
+<body>
+  <!--
+    Окно-движок: невидимое, без интерфейса. Держит один <audio> и играет то,
+    что скажет main. Раньше эту работу делала полноценная страница сервиса —
+    она же весила около 300 МБ.
+  -->
+  <audio id="audio" preload="auto"></audio>
+
+  <script src="../../node_modules/hls.js/dist/hls.light.min.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>

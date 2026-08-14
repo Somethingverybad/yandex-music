@@ -17,4 +17,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('__ymHost', {
   publish: (state) => ipcRenderer.send('player:state', state),
   log: (message) => ipcRenderer.send('player:log', String(message)),
+  // выбор музыки в каталоге: очередь уходит собственному плееру
+  pick: (payload) => ipcRenderer.send('vk:pick', payload),
 });

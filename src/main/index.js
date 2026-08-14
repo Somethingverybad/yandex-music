@@ -22,6 +22,7 @@ const {
 const config = require('./config');
 const { YmApi } = require('./ym-api');
 const { Downloader } = require('./downloader');
+const nativePlayer = require('./native-player');
 const mpris = require('./mpris');
 const traySni = require('./tray-sni');
 const wallpaper = require('./wallpaper');
@@ -38,6 +39,7 @@ const ROOT_DIR = path.join(__dirname, '..', '..');
 const INJECT_JS = path.join(ROOT_DIR, 'src', 'inject', 'inject.js');
 const PLAYER_BRIDGE_JS = path.join(ROOT_DIR, 'src', 'inject', 'player-bridge.js');
 const VK_API_JS = path.join(ROOT_DIR, 'src', 'inject', 'vk-api.js');
+const VK_PICKER_JS = path.join(ROOT_DIR, 'src', 'inject', 'vk-picker.js');
 const ICON_PATH = path.join(ROOT_DIR, 'assets', 'icon.png');
 // Монохромный силуэт для строки меню macOS; рисуется scripts/make-tray-icon.js
 const TRAY_TEMPLATE_PATH = path.join(ROOT_DIR, 'assets', 'trayTemplate.png');
@@ -177,6 +179,14 @@ function activeSource() {
   return 'ym';
 }
 
+/**
+ * Играет ли ВК своим плеером. В этом режиме страница сервиса — только
+ * каталог: она не звучит, а выбранную очередь подхватывает окно-движок.
+ */
+function vkNative() {
+  return config.get('vk_native_player') !== false;
+}
+
 function sourceWindow(source) {
   const win = source === 'vk' ? vkWindow : mainWindow;
   return win && !win.isDestroyed() ? win : null;
@@ -195,6 +205,11 @@ function sourceOfContents(contents) {
 
 /** Выполняет метод драйвера плеера в странице активного сервиса. */
 function playerCall(method, ...args) {
+  // ВК со своим плеером командуется напрямую, страница тут ни при чём
+  if (activeSource() === 'vk' && vkNative()) {
+    return Promise.resolve(nativePlayer.command(method, args[0]));
+  }
+
   const win = activeWindow();
   if (!win) return Promise.resolve(false);
   const argsJson = args.map((a) => JSON.stringify(a)).join(', ');
@@ -210,8 +225,43 @@ function playerCall(method, ...args) {
     });
 }
 
+/**
+ * Состояние приходит из двух мест: из моста в странице сервиса и из
+ * собственного плеера. Формат общий, поэтому обработка одна.
+ */
+function handlePlayerState(source, state) {
+  if (!state) return;
+  const previous = stateBySource[source];
+  stateBySource[source] = state;
+
+  if (!previous || previous.paused !== state.paused || previous.title !== state.title) {
+    console.log('[main] состояние %s: «%s» %s (id=%s)', source, state.title || '—',
+      state.paused ? 'пауза' : 'играет', state.trackId || '—');
+  }
+
+  if (source !== activeSource()) {
+    // Заиграл неактивный сервис — значит пользователь хочет слушать именно
+    // его. Двух песен сразу не допускаем: он становится активным, прежний
+    // глушится (см. setSource).
+    if (state.paused === false) setSource(source);
+    return;
+  }
+
+  const trackChanged = !lastState || lastState.title !== state.title
+    || lastState.artist !== state.artist;
+  const pausedChanged = !lastState || lastState.paused !== state.paused;
+  lastState = state;
+  sendToWidget('player:state', state);
+  mpris.update(state);
+  if (trackChanged || pausedChanged) rebuildTrayMenu();
+}
+
 /** Ставит на паузу сервис, который перестал быть активным. */
 function pauseSource(source) {
+  if (source === 'vk' && vkNative()) {
+    nativePlayer.command('pause');
+    return;
+  }
   const win = sourceWindow(source);
   if (!win) return;
   win.webContents
@@ -236,6 +286,33 @@ function injectPlayerBridge(contents) {
 function applyAdSkip(contents) {
   const enabled = Boolean(config.get('block_ads'));
   contents.executeJavaScript(`window.__ymSkipAds = ${enabled};`).catch(() => {});
+}
+
+/**
+ * Запоминает id вошедшего пользователя ВК.
+ *
+ * Он нужен как ключ распаковки ссылок на файлы, а знает его только страница.
+ * Сохранив id один раз, приложение обходится без неё: окно ВК открывается
+ * ради входа и выбора музыки, играет же собственный плеер (см. vk-api.js).
+ */
+function rememberVkUser(contents) {
+  contents.executeJavaScript('window.vk && window.vk.id ? String(window.vk.id) : null;')
+    .then((id) => {
+      if (!id || id === '0' || id === config.get('vk_user_id')) return;
+      config.set('vk_user_id', id);
+      config.save();
+      console.log('[main] ВК: пользователь %s', id);
+    })
+    .catch(() => {});
+}
+
+/** Перехват выбора музыки: страница отдаёт очередь собственному плееру. */
+function injectVkPicker(contents) {
+  const script = readFileSafe(VK_PICKER_JS);
+  if (!script) return;
+  contents.executeJavaScript(script)
+    .then((result) => console.log('[main] vk-picker внедрён:', result))
+    .catch((err) => console.warn('[main] vk-picker:', err.message));
 }
 
 /** Клиент аудио ВК: живёт в странице, чтобы ходить с её cookie и Origin. */
@@ -362,10 +439,14 @@ function createVkWindow() {
   vkWindow.loadURL(VK_URL);
 
   vkWindow.webContents.on('did-finish-load', () => {
-    console.log('[main] страница ВК загружена, внедряю мост плеера');
+    console.log('[main] страница ВК загружена');
     applyAdSkip(vkWindow.webContents);
-    injectPlayerBridge(vkWindow.webContents);
+    // со своим плеером страница только каталог: мост ей не нужен,
+    // вместо него — перехват выбора музыки
+    if (vkNative()) injectVkPicker(vkWindow.webContents);
+    else injectPlayerBridge(vkWindow.webContents);
     injectVkApi(vkWindow.webContents);
+    rememberVkUser(vkWindow.webContents);
   });
   vkWindow.webContents.on('did-fail-load', (_e, code, description, url) => {
     console.warn('[main] ВК: загрузка не удалась (%s): %s %s', code, description, url);
@@ -434,7 +515,9 @@ function setSource(source) {
 
   // Окно нужного сервиса могло ещё не подниматься — оно создаётся по
   // требованию, чтобы не держать в памяти страницу, которой не пользуются
-  if (next === 'vk' && !sourceWindow('vk')) {
+  // Со своим плеером страница ВК не нужна: её открывают вручную, чтобы
+  // войти и выбрать музыку, а звук идёт из окна-движка
+  if (next === 'vk' && !vkNative() && !sourceWindow('vk')) {
     config.set('vk_enabled', true);
     config.save();
     createVkWindow();
@@ -1150,34 +1233,24 @@ function registerIpc() {
   /* --- состояние плеера из страницы ЯМ --- */
 
   ipcMain.on('player:state', (event, state) => {
-    // состояние шлют оба окна; наружу отдаём только активный сервис
-    const source = sourceOfContents(event.sender);
-    const previous = stateBySource[source];
-    stateBySource[source] = state;
-
-    if (!previous || previous.paused !== state.paused || previous.title !== state.title) {
-      console.log('[main] состояние %s: «%s» %s (id=%s)', source, state.title || '—',
-        state.paused ? 'пауза' : 'играет', state.trackId || '—');
-    }
-
-    if (source !== activeSource()) {
-      // В неактивном окне нажали play — значит пользователь хочет слушать
-      // именно его. Двух песен сразу не допускаем: этот сервис становится
-      // активным, прежний глушится (см. setSource).
-      if (state && state.paused === false) setSource(source);
-      return;
-    }
-
-    const trackChanged = !lastState || lastState.title !== state.title
-      || lastState.artist !== state.artist;
-    const pausedChanged = !lastState || lastState.paused !== state.paused;
-    lastState = state;
-    sendToWidget('player:state', state);
-    mpris.update(state);
-    if (trackChanged || pausedChanged) rebuildTrayMenu();
+    handlePlayerState(sourceOfContents(event.sender), state);
   });
 
   ipcMain.on('player:log', (_event, message) => console.log('[page]', message));
+
+  /* --- выбор музыки в каталоге ВК --- */
+
+  ipcMain.on('vk:pick', (_event, payload) => {
+    if (!vkNative() || !payload || !Array.isArray(payload.tracks)) return;
+    const { tracks, index } = payload;
+    if (!tracks.length) return;
+
+    console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
+    // выбор в каталоге делает ВК активным сервисом — иначе виджет
+    // показывал бы Яндекс, пока звучит ВК
+    if (activeSource() !== 'vk') setSource('vk');
+    nativePlayer.playQueue(tracks, index);
+  });
 
   /* --- окно настроек --- */
 
@@ -1478,6 +1551,14 @@ if (!gotLock) {
 
     setupSession();
     registerIpc();
+
+    // Свой плеер для ВК: состояние отдаёт в том же виде, что и мост в
+    // странице, поэтому виджету, трею и MPRIS всё равно, кто играет
+    nativePlayer.init({
+      getUserId: () => config.get('vk_user_id'),
+      onState: (state) => handlePlayerState('vk', state),
+      onError: (message) => sendToWidget('download:done', { ok: false, error: message }),
+    });
     wallpaper.find().then((found) => {
       wallpaperPath = found;
       if (found) {
@@ -1486,11 +1567,13 @@ if (!gotLock) {
         sendWidgetGeometry();
       }
     });
-    // Каждое окно сервиса — полноценная страница Chromium (~200 МБ), поэтому
+    // Каждое окно сервиса — полноценная страница Chromium (~300 МБ), поэтому
     // поднимаем только то, которым сейчас пользуются. Второе создаётся при
     // переключении источника или по команде «Открыть …» из меню.
-    if (activeSource() === 'vk' && config.get('vk_enabled')) createVkWindow();
-    else createMainWindow();
+    // Для ВК со своим плеером окно не нужно вовсе: оно открывается вручную,
+    // чтобы войти и выбрать музыку.
+    if (activeSource() === 'ym') createMainWindow();
+    else if (!vkNative() && config.get('vk_enabled')) createVkWindow();
     if (config.get('widget_enabled')) createWidget();
     createTray();
     registerMediaKeys();
