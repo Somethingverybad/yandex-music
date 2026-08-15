@@ -293,6 +293,9 @@ window.widgetApi.onConfig(applyConfig);
 
 function applyConfig(cfg) {
   if (!cfg) return;
+  // облегчённый вид: сплошной фон и никаких анимаций — на старых машинах
+  // размытие под окном поверх всех остальных заметно греет
+  document.body.classList.toggle('lite', Boolean(cfg.lite));
   if (cfg.accent) accents = { ...accents, ...cfg.accent };
   if (cfg.source) setSource(cfg.source);
   else applyAccent();
@@ -301,7 +304,10 @@ function applyConfig(cfg) {
   document.body.classList.toggle('system-glass', Boolean(cfg.systemGlass) && cfg.glass !== false);
   document.body.classList.toggle('platform-darwin', cfg.platform === 'darwin');
 
-  macSystemGlass = cfg.platform === 'darwin' && cfg.glass !== false;
+  // В облегчённом виде системного размытия нет, и стекло рисует линза —
+  // как на Linux. Она перерисовывается только при смене трека, а не каждый
+  // кадр, поэтому старую машину греет меньше, чем vibrancy.
+  macSystemGlass = cfg.platform === 'darwin' && cfg.glass !== false && !cfg.lite;
   if (macSystemGlass) lens = null;
 
   if (cfg.glass === false || macSystemGlass) {
@@ -338,6 +344,9 @@ window.addEventListener('resize', queueLensRender);
 // блик следует за курсором
 window.addEventListener('mousemove', (event) => {
   if (!lens) return;
+  // В облегчённом виде блик за курсором не следует: каждое движение мыши
+  // перерисовывало бы линзу, а весь смысл режима — не гонять видеокарту
+  if (document.body.classList.contains('lite')) return;
   lens.setPointer(event.clientX, event.clientY);
   queueLensRender();
 });

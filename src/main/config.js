@@ -57,6 +57,10 @@ const DEFAULTS = {
   // Показывать виджет в панели задач: свёрнутый виджет возвращается
   // кликом по его иконке, а не только через трей
   widget_in_taskbar: true,
+  // Облегчённый виджет: сплошной фон вместо системного размытия и без
+  // анимаций. Размытие пересчитывается каждый кадр силами оконного сервера,
+  // и на старых машинах это заметно греет — режим отключает именно его.
+  widget_lite: false,
   // Стеклянный вид виджета. На macOS и Windows включается системное
   // размытие фона за окном (vibrancy / acrylic), на Linux стекло
   // строится поверх размытой обложки трека
@@ -184,7 +188,7 @@ function update(patch) {
     data.preferred_bitrate = [64, 128, 192, 320].includes(bitrate) ? bitrate : 320;
   }
   for (const key of ['skip_existing', 'block_ads', 'widget_enabled', 'widget_compact',
-    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'vk_enabled', 'vk_native_player',
+    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'widget_lite', 'vk_enabled', 'vk_native_player',
     'start_hidden', 'close_to_tray']) {
     if (patch[key] !== undefined) data[key] = Boolean(patch[key]);
   }

@@ -24,6 +24,40 @@
 /* Кнопка, которой в текущем сервисе нечего делать */
 .icon-btn.hidden { display: none; }
 
+/* ---------- облегчённый вид ---------- */
+
+/*
+ * Всё, что заставляет систему перерисовывать окно каждый кадр: размытие
+ * фона, полупрозрачность, бегущая строка и плавные переходы. На старых
+ * машинах виджет висит поверх остальных окон часами, и именно это греет.
+ */
+body.lite .backdrop,
+body.lite .glass-sheen { display: none; }
+
+/* Пока линза не подняла первый кадр (нет обложки, нет WebGL) — сплошной
+   фон: полупрозрачная панель на светлом окне позади нечитаема */
+body.lite .widget,
+body.lite.has-art .widget,
+body.lite.system-glass .widget {
+  background: var(--solid-bg);
+  backdrop-filter: none;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+/* Линза работает — фон отдаём ей, как на Linux */
+body.lite.gl-glass .widget {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+body.lite .marquee.scrolling span { animation: none; }
+
+body.lite * {
+  transition: none !important;
+  animation-duration: 0s !important;
+}
+
 * { box-sizing: border-box; }
 
 html, body {

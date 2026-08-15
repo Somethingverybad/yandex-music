@@ -17,6 +17,7 @@ const ui = {
   opacityValue: el('opacity-value'),
   accentYm: el('accent-ym'),
   accentVk: el('accent-vk'),
+  lite: el('lite'),
   saved: el('saved'),
 };
 
@@ -47,6 +48,7 @@ async function load() {
   ui.opacityValue.textContent = opacity + '%';
   ui.accentYm.value = cfg.widget_accent_ym || DEFAULT_ACCENT.ym;
   ui.accentVk.value = cfg.widget_accent_vk || DEFAULT_ACCENT.vk;
+  ui.lite.checked = Boolean(cfg.widget_lite);
 
   ui.vkNote.textContent = 'ВК отдаёт часть треков потоком HLS — такие пока не '
     + 'скачиваются, приложение честно сообщит об этом вместо битого файла.';
@@ -74,6 +76,7 @@ async function save() {
     widget_opacity: parseInt(ui.opacity.value, 10) / 100,
     widget_accent_ym: ui.accentYm.value,
     widget_accent_vk: ui.accentVk.value,
+    widget_lite: ui.lite.checked,
   });
   if (result && result.ok === false) {
     notice(result.error || 'Не удалось сохранить', true);

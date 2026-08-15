@@ -14,20 +14,22 @@
    прозрачные поля под тень стали бы серой рамкой вокруг виджета.
    Размер окна на маке считается с тем же нулевым полем — см. widgetPad()
    в src/main/index.js. */
-body.platform-darwin.system-glass { --pad: 0px; }
+/* Окно на маке всегда совпадает с панелью — и со стеклом, и без него:
+   прозрачные поля система обводит контуром, получается лишняя рамка */
+body.platform-darwin { --pad: 0px; }
 
 /* Панель отдаёт фон системе: собственная подложка, размытая обложка и
    WebGL-линза выключены — иначе они закрывают настоящее стекло. */
-body.platform-darwin.system-glass .backdrop,
-body.platform-darwin.system-glass .glass-canvas { display: none; }
+body.platform-darwin.system-glass:not(.lite) .backdrop,
+body.platform-darwin.system-glass:not(.lite) .glass-canvas { display: none; }
 
 /* Никакой собственной заливки: любая подложка поверх vibrancy читается как
    затемнение стекла. Остаётся только тонкая светлая кромка — она задаёт
    форму панели. Тень рисует система по форме окна, поэтому собственная
    box-shadow здесь тоже не нужна. */
-body.platform-darwin.system-glass .widget,
-body.platform-darwin.system-glass.has-art .widget,
-body.platform-darwin.system-glass.gl-glass .widget {
+body.platform-darwin.system-glass:not(.lite) .widget,
+body.platform-darwin.system-glass:not(.lite).has-art .widget,
+body.platform-darwin.system-glass:not(.lite).gl-glass .widget {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
@@ -39,4 +41,4 @@ body.platform-darwin.system-glass.gl-glass .widget {
 
 /* Блик по верхней кромке приглушён: на прозрачном стекле полный градиент
    выглядит молочной плёнкой */
-body.platform-darwin.system-glass .glass-sheen { opacity: 0.45; }
+body.platform-darwin.system-glass:not(.lite) .glass-sheen { opacity: 0.45; }

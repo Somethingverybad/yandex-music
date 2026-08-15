@@ -60,7 +60,18 @@ const PANEL_HEIGHT_COMPACT = 58;
  * На Linux и Windows поведение прежнее: поля есть, тень рисует CSS.
  */
 function macSystemGlass() {
-  return process.platform === 'darwin' && glassEnabled();
+  return process.platform === 'darwin' && glassEnabled() && !liteWidget();
+}
+
+/**
+ * Облегчённый вид: сплошной фон вместо системного размытия и без анимаций.
+ *
+ * Размытие под прозрачным окном, которое висит поверх всех остальных,
+ * оконный сервер пересчитывает каждый кадр. На старых машинах это греет
+ * ощутимее, чем всё остальное приложение вместе взятое.
+ */
+function liteWidget() {
+  return Boolean(config.get('widget_lite'));
 }
 
 /**
@@ -73,8 +84,14 @@ function glassEnabled() {
   return process.platform === 'darwin' || Boolean(config.get('widget_glass'));
 }
 
+/*
+ * На macOS окно всегда делается ровно по панели: тень рисует система, а
+ * прозрачные поля вокруг она обводит контуром — получается рамка. Это
+ * не зависит от размытия, поэтому и в облегчённом виде полей нет.
+ * На Linux и Windows поля нужны: там тень рисует CSS.
+ */
 function widgetPad() {
-  return macSystemGlass() ? 0 : SHADOW_PAD;
+  return process.platform === 'darwin' ? 0 : SHADOW_PAD;
 }
 
 function widgetWidth() {
@@ -110,6 +127,9 @@ let saveWidgetPosTimer = null;
 let wallpaperPath = null;
 let capturingBackdrop = false;
 let backdropTimer = null;
+// с каким видом создано текущее окно виджета: размытие включается при
+// создании, поэтому смена режима требует пересоздания
+let appliedLite = null;
 
 /* ------------------------------------------------------------------ */
 /* Вспомогательное                                                     */
@@ -738,6 +758,7 @@ function createWidget() {
     },
   });
 
+  appliedLite = liteWidget();
   widgetWindow.loadFile(path.join(ROOT_DIR, 'src', 'renderer', 'widget.html'));
   widgetWindow.setOpacity(config.get('widget_opacity'));
   if (config.get('widget_always_on_top')) {
@@ -1432,6 +1453,7 @@ function widgetConfig() {
     alwaysOnTop: config.get('widget_always_on_top'),
     inTaskbar: config.get('widget_in_taskbar'),
     source: activeSource(),
+    lite: liteWidget(),
     vkEnabled: Boolean(config.get('vk_enabled')),
     accent: {
       ym: config.get('widget_accent_ym'),
@@ -1441,7 +1463,9 @@ function widgetConfig() {
     glassOptions: config.get('glass_options'),
     glassBackdrop: config.get('glass_backdrop'),
     glassImage: config.get('glass_backdrop_image') || wallpaperPath,
-    systemGlass: ['darwin', 'win32'].includes(process.platform),
+    // в облегчённом виде системного размытия нет, значит и стилям о нём
+    // знать незачем — иначе панель осталась бы прозрачной
+    systemGlass: !liteWidget() && ['darwin', 'win32'].includes(process.platform),
     platform: process.platform,
     wallpaper: wallpaperPath,
     opacity: config.get('widget_opacity'),
@@ -1451,6 +1475,14 @@ function widgetConfig() {
 
 /** Применяет настройки, влияющие на уже созданные окна. */
 function applyRuntimeSettings() {
+  // Размытие включается при создании окна, поэтому переход в облегчённый
+  // вид и обратно требует пересоздания — заодно меняются поля под тень
+  if (appliedLite !== null && appliedLite !== liteWidget()
+      && widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.close();
+    createWidget();
+  }
+
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.setOpacity(config.get('widget_opacity'));
     widgetWindow.setAlwaysOnTop(config.get('widget_always_on_top'), 'screen-saver');
