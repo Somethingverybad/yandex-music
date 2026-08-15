@@ -53,13 +53,25 @@ function load(next, autoplay, startAt) {
       // фатальную ошибку наверх: main решит, пропускать трек или нет
       if (data && data.fatal) fail(data.details || 'ошибка потока');
     });
+    // подписка строго до loadSource: манифест может разобраться мгновенно
+    // (кэш, быстрая сеть), и тогда событие пройдёт мимо запоздавшего
+    // слушателя — трек молча остаётся на паузе
+    if (autoplay) hls.once(window.Hls.Events.MANIFEST_PARSED, () => play());
     hls.loadSource(track.url);
     hls.attachMedia(audio);
-    if (autoplay) hls.on(window.Hls.Events.MANIFEST_PARSED, () => play());
   } else {
     audio.src = track.url;
     audio.load();
     if (autoplay) play();
+  }
+
+  // Подстраховка от той же гонки: к моменту готовности звук уже должен
+  // идти, а если нет — запускаем сами. Событие приходит один раз на трек.
+  if (autoplay) {
+    audio.addEventListener('canplay', function once() {
+      audio.removeEventListener('canplay', once);
+      if (audio.paused) play();
+    });
   }
 
   publish(true);

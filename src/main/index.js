@@ -12,6 +12,7 @@
  * приложение живёт в трее и в виджете.
  */
 const fs = require('fs');
+const util = require('util');
 const fsp = require('fs/promises');
 const path = require('path');
 const {
@@ -113,6 +114,40 @@ let backdropTimer = null;
 /* ------------------------------------------------------------------ */
 /* Вспомогательное                                                     */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Дублирует консоль в файл.
+ *
+ * У собранного приложения вывода в терминал нет, поэтому разбираться, почему
+ * что-то не сработало на другой машине, попросту не с чем. Журнал лежит в
+ * ~/Library/Logs/TheIf (macOS), %APPDATA%\TheIf\logs (Windows),
+ * ~/.config/TheIf/logs (Linux) и обрезается, когда разрастается.
+ */
+function setupFileLog() {
+  try {
+    const dir = app.getPath('logs');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'main.log');
+
+    try {
+      if (fs.statSync(file).size > 1024 * 1024) fs.truncateSync(file, 0);
+    } catch (err) { /* журнала ещё нет */ }
+
+    const stream = fs.createWriteStream(file, { flags: 'a' });
+    for (const level of ['log', 'warn', 'error']) {
+      const original = console[level].bind(console);
+      console[level] = (...args) => {
+        original(...args);
+        try {
+          stream.write(`${new Date().toISOString()} ${util.format(...args)}\n`);
+        } catch (err) { /* журнал не должен ломать приложение */ }
+      };
+    }
+    console.log('[main] журнал: %s', file);
+  } catch (err) {
+    console.warn('[main] журнал недоступен: %s', err.message);
+  }
+}
 
 function readFileSafe(filePath) {
   try {
@@ -1544,6 +1579,7 @@ if (!gotLock) {
   app.on('second-instance', () => showWidget());
 
   app.whenReady().then(() => {
+    setupFileLog();
     config.initSecureStorage();
     api = new YmApi(() => config.getToken());
     downloader = new Downloader(api, config);
