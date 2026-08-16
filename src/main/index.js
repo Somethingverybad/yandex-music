@@ -479,10 +479,12 @@ function createMainWindow() {
 /* ------------------------------------------------------------------ */
 
 /**
- * Окно ВК устроено так же, как окно ЯМ: звук играет сам веб-плеер сервиса,
- * а приложение читает состояние через player-bridge (профиль 'vk') и шлёт
- * ему команды. Своего плеера у нас нет — значит, ничего не ломается при
- * очередном изменении вёрстки VK, пока жив mediaSession.
+ * Окно ВК — каталог: в нём ищут и выбирают музыку, а звук идёт из окна-движка
+ * (см. native-player.js). Страница заглушается, выбранная очередь уходит
+ * своему плееру, и окно можно закрыть — музыка продолжит играть.
+ *
+ * При выключенном vk_native_player работает прежняя схема: звук играет сам
+ * веб-плеер сервиса, а приложение читает состояние через player-bridge.
  */
 function createVkWindow() {
   vkWindow = new BrowserWindow({
@@ -523,7 +525,13 @@ function createVkWindow() {
     console.error('[main] ВК: ошибка preload %s: %s', preloadPath, error.message);
   });
   // VK — SPA: переход между разделами не перезагружает документ
-  vkWindow.webContents.on('did-navigate-in-page', () => injectPlayerBridge(vkWindow.webContents));
+  // VK — SPA: после перехода между разделами скрипты нужно внедрить заново.
+  // Со своим плеером это перехватчик выбора: мост читал бы заглушённый
+  // элемент страницы и спорил с движком о том, играет музыка или нет.
+  vkWindow.webContents.on('did-navigate-in-page', () => {
+    if (vkNative()) injectVkPicker(vkWindow.webContents);
+    else injectPlayerBridge(vkWindow.webContents);
+  });
 
   vkWindow.webContents.setWindowOpenHandler(({ url }) => {
     // авторизация и внутренние ссылки VK остаются в окне приложения,
@@ -1316,10 +1324,29 @@ function registerIpc() {
     const { tracks, index } = payload;
     if (!tracks.length) return;
 
-    console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
     // выбор в каталоге делает ВК активным сервисом — иначе виджет
     // показывал бы Яндекс, пока звучит ВК
     if (activeSource() !== 'vk') setSource('vk');
+
+    /*
+     * Одиночный трек приходит и тогда, когда очередь у страницы просто
+     * пропала: ВК делает служебный редирект на login.php, перезагружает
+     * себя, и плеер страницы начинает с чистого списка. Если этот трек уже
+     * стоит в нашей очереди, переключаемся на него и очередь сохраняем —
+     * иначе плейлист из сотен треков заменялся бы одной песней, и листать
+     * становилось нечем.
+     */
+    if (tracks.length === 1) {
+      const known = nativePlayer.positionOf(tracks[0].id);
+      if (known >= 0) {
+        console.log('[main] ВК: трек %d из очереди в %d — очередь сохраняем',
+          known + 1, nativePlayer.queueLength());
+        nativePlayer.playAt(known);
+        return;
+      }
+    }
+
+    console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
     nativePlayer.playQueue(tracks, index);
   });
 

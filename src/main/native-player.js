@@ -214,6 +214,20 @@ function playQueue(tracks, position = 0) {
   return loadIndex(position);
 }
 
+/** Где трек в текущей очереди; -1, если его там нет. */
+function positionOf(id) {
+  return queue.findIndex((item) => item && item.id === id);
+}
+
+/** Играет трек, который уже стоит в очереди, не трогая саму очередь. */
+function playAt(position) {
+  return loadIndex(position);
+}
+
+function queueLength() {
+  return queue.length;
+}
+
 function command(name, value) {
   switch (name) {
     case 'next':
@@ -255,4 +269,7 @@ function shutdown() {
   ready = false;
 }
 
-module.exports = { init, playQueue, command, hasTrack, stop, shutdown, restore };
+module.exports = {
+  init, playQueue, command, hasTrack, stop, shutdown, restore,
+  positionOf, playAt, queueLength,
+};
