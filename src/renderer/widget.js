@@ -18,6 +18,8 @@ const ui = {
   progress: el('progress'),
   progressFill: el('progress-fill'),
   progressKnob: el('progress-knob'),
+  volume: el('volume'),
+  volumeFill: el('volume-fill'),
 };
 
 const PLAY_PATH = 'M8 5v14l11-7z';
@@ -26,6 +28,7 @@ const PAUSE_PATH = 'M6 5h4v14H6zm8 0h4v14h-4z';
 let state = { paused: true, position: 0, duration: 0, hasTrack: false };
 let statusTimer = null;
 let seeking = false;
+let settingVolume = false;   // тянем ползунок громкости
 let source = 'ym';           // активный сервис: 'ym' | 'vk'
 
 const SERVICES = {
@@ -238,6 +241,13 @@ function renderPlayback() {
   document.body.classList.toggle('playing', !state.paused);
 }
 
+function renderVolume() {
+  // пока тянем ползунок, состояние из плеера не перебивает жест
+  if (settingVolume) return;
+  const value = state.muted ? 0 : (typeof state.volume === 'number' ? state.volume : 1);
+  ui.volumeFill.style.width = `${Math.max(0, Math.min(1, value)) * 100}%`;
+}
+
 function renderProgress() {
   const duration = state.duration || 0;
   const position = Math.min(state.position || 0, duration || Infinity);
@@ -268,6 +278,7 @@ window.widgetApi.onState((next) => {
   if (trackChanged) renderTrack();
   if (playbackChanged || trackChanged) renderPlayback();
   if (!seeking) renderProgress();
+  renderVolume();
 });
 
 window.widgetApi.onProgress((data) => {
@@ -391,6 +402,35 @@ ui.progress.addEventListener('mousedown', (event) => {
   renderProgress();
 });
 
+/* ---------- громкость ---------- */
+
+/** Доля от ширины полосы под курсором. */
+function volumeFromEvent(event) {
+  const box = ui.volume.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (event.clientX - box.left) / box.width));
+}
+
+function applyVolume(event) {
+  const value = volumeFromEvent(event);
+  ui.volumeFill.style.width = `${value * 100}%`;
+  send('volume', value);
+}
+
+ui.volume.addEventListener('mousedown', (event) => {
+  settingVolume = true;
+  applyVolume(event);
+});
+
+window.addEventListener('mousemove', (event) => {
+  if (settingVolume) applyVolume(event);
+});
+
+window.addEventListener('mouseup', () => {
+  if (!settingVolume) return;
+  settingVolume = false;
+  renderVolume();
+});
+
 window.addEventListener('mousemove', (event) => {
   if (!seeking) return;
   state.position = seekFromEvent(event);
@@ -442,3 +482,4 @@ window.addEventListener('keydown', (event) => {
 renderTrack();
 renderPlayback();
 renderProgress();
+renderVolume();
