@@ -32,9 +32,9 @@
   -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
-  width: 52px;
+  width: 42px;
   height: 18px;
-  margin-left: 8px;
+  margin-left: 6px;
   cursor: pointer;
   flex: none;
 }

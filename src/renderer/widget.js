@@ -20,6 +20,7 @@ const ui = {
   progressKnob: el('progress-knob'),
   volume: el('volume'),
   volumeFill: el('volume-fill'),
+  shuffle: el('shuffle'),
 };
 
 const PLAY_PATH = 'M8 5v14l11-7z';
@@ -307,6 +308,12 @@ function applyConfig(cfg) {
   // облегчённый вид: сплошной фон и никаких анимаций — на старых машинах
   // размытие под окном поверх всех остальных заметно греет
   document.body.classList.toggle('lite', Boolean(cfg.lite));
+
+  // перемешивание умеет только свой плеер; в Яндексе очередью распоряжается
+  // страница, и кнопке там нечего делать
+  ui.shuffle.classList.toggle('hidden', !cfg.canShuffle);
+  ui.shuffle.classList.toggle('active', Boolean(cfg.shuffle));
+  ui.shuffle.title = cfg.shuffle ? 'Перемешивание включено' : 'Перемешать';
   if (cfg.accent) accents = { ...accents, ...cfg.accent };
   if (cfg.source) setSource(cfg.source);
   else applyAccent();
@@ -386,6 +393,7 @@ ui.download.addEventListener('click', () => {
   send('download');
 });
 ui.cover.addEventListener('click', () => send('open-service'));
+ui.shuffle.addEventListener('click', () => send('toggle-shuffle'));
 
 /* перемотка по полосе прогресса */
 

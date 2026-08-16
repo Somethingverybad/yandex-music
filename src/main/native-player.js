@@ -28,7 +28,13 @@ let ready = false;
 let pending = [];        // команды, пришедшие до готовности окна
 
 let queue = [];          // список треков: { id, accessKey, title, artist, ... }
-let index = -1;
+let index = -1;          // позиция в очереди
+// Порядок обхода: при перемешивании это перетасованные номера треков, иначе
+// просто по порядку. Так «дальше» не возвращает одну и ту же песню дважды,
+// а выключение перемешивания продолжает очередь с текущего места.
+let order = [];
+let cursor = 0;          // где мы в порядке обхода
+let shuffled = false;
 let hooks = {};          // onState, onEnded, onError
 let getUserId = () => null;
 
@@ -78,6 +84,28 @@ function send(command, value) {
 /* Очередь                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Пересобирает порядок обхода.
+ *
+ * При перемешивании текущий трек ставится первым: иначе включение режима
+ * прямо посреди песни перекидывало бы на другую.
+ */
+function rebuildOrder() {
+  order = queue.map((_, position) => position);
+
+  if (shuffled) {
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const at = order.indexOf(index);
+    if (at > 0) [order[0], order[at]] = [order[at], order[0]];
+    cursor = 0;
+  } else {
+    cursor = Math.max(0, order.indexOf(index));
+  }
+}
+
 /** Заряжает трек по позиции в очереди, попутно обновив ссылку на файл. */
 async function loadIndex(at, autoplay = true, startAt = 0) {
   if (at < 0 || at >= queue.length) {
@@ -85,6 +113,8 @@ async function loadIndex(at, autoplay = true, startAt = 0) {
     return false;
   }
   index = at;
+  const known = order.indexOf(at);
+  cursor = known >= 0 ? known : 0;
   const item = queue[index];
 
   try {
@@ -168,6 +198,8 @@ function restore() {
 
   queue = saved.tracks;
   const at = Number.isInteger(saved.index) ? saved.index : 0;
+  index = at;
+  rebuildOrder();
   console.log('[native] восстановлена очередь: %d треков, позиция %d', queue.length, at + 1);
   loadIndex(Math.max(0, Math.min(at, queue.length - 1)), false, Number(saved.position) || 0);
   return true;
@@ -211,7 +243,21 @@ function init(options = {}) {
 /** Ставит очередь и начинает играть с указанной позиции. */
 function playQueue(tracks, position = 0) {
   queue = Array.isArray(tracks) ? tracks.filter(Boolean) : [];
+  index = position;
+  rebuildOrder();
   return loadIndex(position);
+}
+
+/** Перемешивание: порядок обхода пересобирается, очередь остаётся прежней. */
+function setShuffle(on) {
+  shuffled = Boolean(on);
+  rebuildOrder();
+  console.log('[native] перемешивание: %s', shuffled ? 'включено' : 'выключено');
+  return shuffled;
+}
+
+function isShuffled() {
+  return shuffled;
 }
 
 /** Где трек в текущей очереди; -1, если его там нет. */
@@ -231,18 +277,18 @@ function queueLength() {
 function command(name, value) {
   switch (name) {
     case 'next':
-      if (index + 1 < queue.length) {
-        loadIndex(index + 1);
+      if (cursor + 1 < order.length) {
+        loadIndex(order[cursor + 1]);
         return true;
       }
-      console.warn('[native] дальше некуда: позиция %d из %d', index + 1, queue.length);
+      console.warn('[native] дальше некуда: %d из %d', cursor + 1, order.length);
       return false;
     case 'prev':
-      if (index > 0) {
-        loadIndex(index - 1);
+      if (cursor > 0) {
+        loadIndex(order[cursor - 1]);
         return true;
       }
-      console.warn('[native] назад некуда: позиция %d', index + 1);
+      console.warn('[native] назад некуда: %d из %d', cursor + 1, order.length);
       return false;
     default:
       send(name, value);
@@ -271,5 +317,5 @@ function shutdown() {
 
 module.exports = {
   init, playQueue, command, hasTrack, stop, shutdown, restore,
-  positionOf, playAt, queueLength,
+  positionOf, playAt, queueLength, setShuffle, isShuffled,
 };

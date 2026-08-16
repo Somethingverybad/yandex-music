@@ -1408,6 +1408,16 @@ function handleWidgetCommand(command, value) {
     case 'download': downloadCurrentTrack(); break;
     case 'refresh-backdrop': captureWidgetBackdrop(); break;
     case 'open-downloads': openDownloadsFolder(); break;
+    case 'toggle-shuffle': {
+      // перемешивание есть только у своего плеера: в Яндексе очередью
+      // распоряжается сама страница
+      if (activeSource() !== 'vk' || !vkNative()) break;
+      const on = nativePlayer.setShuffle(!config.get('vk_shuffle'));
+      config.set('vk_shuffle', on);
+      config.save();
+      sendToWidget('widget:config', widgetConfig());
+      break;
+    }
     case 'set-source': setSource(value); break;
     case 'toggle-source': setSource(activeSource() === 'ym' ? 'vk' : 'ym'); break;
     case 'open-service': (activeSource() === 'vk' ? showVkWindow : showMainWindow)(); break;
@@ -1496,6 +1506,9 @@ function widgetConfig() {
     inTaskbar: config.get('widget_in_taskbar'),
     source: activeSource(),
     lite: liteWidget(),
+    // перемешивание умеет только свой плеер
+    canShuffle: activeSource() === 'vk' && vkNative(),
+    shuffle: Boolean(config.get('vk_shuffle')),
     vkEnabled: Boolean(config.get('vk_enabled')),
     accent: {
       ym: config.get('widget_accent_ym'),

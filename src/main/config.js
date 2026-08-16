@@ -39,6 +39,9 @@ const DEFAULTS = {
   // выбора музыки, звук идёт из окна-движка. Полноценный сайт в памяти
   // весит около 300 МБ, движок — около 120 МБ.
   vk_native_player: true,
+  // Перемешивать очередь своего плеера. Порядок обхода пересобирается,
+  // сама очередь при этом не трогается
+  vk_shuffle: false,
   // id вошедшего пользователя ВК: служит ключом распаковки ссылок на файлы.
   // Читается из страницы при входе и сохраняется, чтобы дальше обходиться
   // без неё — см. vk-api.js
@@ -188,7 +191,7 @@ function update(patch) {
     data.preferred_bitrate = [64, 128, 192, 320].includes(bitrate) ? bitrate : 320;
   }
   for (const key of ['skip_existing', 'block_ads', 'widget_enabled', 'widget_compact',
-    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'widget_lite', 'vk_enabled', 'vk_native_player',
+    'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'widget_lite', 'vk_enabled', 'vk_native_player', 'vk_shuffle',
     'start_hidden', 'close_to_tray']) {
     if (patch[key] !== undefined) data[key] = Boolean(patch[key]);
   }
