@@ -130,5 +130,18 @@
   // меняются вместе с вёрсткой, а поле с текущим треком живёт давно
   setInterval(pick, 400);
 
+  /*
+   * Весь перехват держится на window.ap. Если ВК его переименует или отдаст
+   * другой плеер, выбор молча перестанет доходить до приложения, поэтому
+   * сообщаем о пропаже сразу — иначе искать причину не по чему.
+   */
+  setTimeout(function () {
+    if (!window.__ymHost || !window.__ymHost.log) return;
+    var ap = window.ap;
+    window.__ymHost.log('picker: ap=' + Boolean(ap)
+      + ', getCurrentAudio=' + Boolean(ap && ap.getCurrentAudio)
+      + ', getCurrentPlaylist=' + Boolean(ap && ap.getCurrentPlaylist));
+  }, 3000);
+
   return 'ok';
 })();

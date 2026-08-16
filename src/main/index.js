@@ -169,6 +169,17 @@ function setupFileLog() {
   }
 }
 
+/** Показывает журнал в файловом менеджере — путь к нему помнить незачем. */
+function showLogFile() {
+  try {
+    const file = path.join(app.getPath('logs'), 'main.log');
+    if (fs.existsSync(file)) shell.showItemInFolder(file);
+    else shell.openPath(app.getPath('logs'));
+  } catch (err) {
+    console.warn('[main] не удалось открыть журнал: %s', err.message);
+  }
+}
+
 function readFileSafe(filePath) {
   try {
     return fs.readFileSync(filePath, 'utf8');
@@ -262,7 +273,9 @@ function sourceOfContents(contents) {
 function playerCall(method, ...args) {
   // ВК со своим плеером командуется напрямую, страница тут ни при чём
   if (activeSource() === 'vk' && vkNative()) {
-    return Promise.resolve(nativePlayer.command(method, args[0]));
+    const result = nativePlayer.command(method, args[0]);
+    console.log('[main] vk (свой плеер): %s -> %s', method, result);
+    return Promise.resolve(result);
   }
 
   const win = activeWindow();
@@ -835,6 +848,7 @@ function showWidgetMenu(x, y) {
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
+    { label: 'Показать журнал', click: showLogFile },
     { type: 'separator' },
     {
       label: 'Компактный вид',
@@ -1079,6 +1093,7 @@ function trayMenuTemplate() {
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
+    { label: 'Показать журнал', click: showLogFile },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
   ];

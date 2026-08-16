@@ -80,13 +80,26 @@ function send(command, value) {
 
 /** Заряжает трек по позиции в очереди, попутно обновив ссылку на файл. */
 async function loadIndex(at, autoplay = true, startAt = 0) {
-  if (at < 0 || at >= queue.length) return false;
+  if (at < 0 || at >= queue.length) {
+    console.warn('[native] позиция %d вне очереди из %d треков', at, queue.length);
+    return false;
+  }
   index = at;
   const item = queue[index];
 
   try {
-    const fresh = await vkApi.track(item.id, item.accessKey, getUserId());
+    const userId = getUserId();
+    if (!userId) {
+      // без id ссылки не распаковать: он читается из страницы при входе
+      throw new Error('нет id пользователя ВК — откройте ВК Музыку и войдите');
+    }
+
+    const fresh = await vkApi.track(item.id, item.accessKey, userId);
     if (!fresh || !fresh.url) throw new Error('нет ссылки на файл');
+    if (fresh.url.includes('audio_api_unavailable')) {
+      throw new Error('ссылку не удалось распаковать — возможно, id пользователя чужой');
+    }
+    console.log('[native] трек %d/%d: %s — %s', index + 1, queue.length, fresh.artist, fresh.title);
     // метаданные из очереди полнее: там есть альбом и обложка из выдачи
     queue[index] = { ...item, ...fresh };
     send('load', { track: queue[index], autoplay, startAt });
@@ -204,11 +217,19 @@ function playQueue(tracks, position = 0) {
 function command(name, value) {
   switch (name) {
     case 'next':
-      if (index + 1 < queue.length) loadIndex(index + 1);
-      return true;
+      if (index + 1 < queue.length) {
+        loadIndex(index + 1);
+        return true;
+      }
+      console.warn('[native] дальше некуда: позиция %d из %d', index + 1, queue.length);
+      return false;
     case 'prev':
-      if (index > 0) loadIndex(index - 1);
-      return true;
+      if (index > 0) {
+        loadIndex(index - 1);
+        return true;
+      }
+      console.warn('[native] назад некуда: позиция %d', index + 1);
+      return false;
     default:
       send(name, value);
       return true;
