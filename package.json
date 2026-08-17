@@ -2,7 +2,7 @@
   "name": "theif",
   "productName": "TheIf",
   "version": "1.0.0",
-  "description": "Кроссплатформенный клиент Яндекс Музыки: мини-плеер-виджет поверх окон и скачивание треков",
+  "description": "Мини-плеер-виджет Яндекс Музыки и ВК Музыки поверх окон со скачиванием треков",
   "main": "src/main/index.js",
   "license": "MIT",
   "author": {
@@ -47,20 +47,26 @@
         "AppImage",
         "deb"
       ],
-      "icon": "assets/icon.png",
-      "category": "AudioVideo",
+      "icon": "build/icons",
+      "category": "AudioVideo;Audio;Player;",
       "syncDesktopName": true,
       "executableArgs": [
         "--ozone-platform=x11"
       ],
-      "synopsis": "Мини-плеер Яндекс Музыки",
+      "synopsis": "Мини-плеер Яндекс Музыки и ВК Музыки",
       "desktop": {
         "entry": {
           "Name": "TheIf",
-          "Comment": "Мини-плеер Яндекс Музыки поверх окон",
-          "Keywords": "music;player;yandex;"
+          "GenericName": "Музыкальный плеер",
+          "Comment": "Мини-плеер Яндекс Музыки и ВК Музыки поверх окон",
+          "Categories": "AudioVideo;Audio;Player;",
+          "Keywords": "music;player;yandex;vk;музыка;плеер;яндекс;вк;",
+          "StartupWMClass": "theif",
+          "StartupNotify": "true"
         }
-      }
+      },
+      "description": "Виджет-плеер поверх окон для Яндекс Музыки и ВК Музыки: обложка, перемотка, громкость, очередь и скачивание треков в mp3 с тегами.",
+      "maintainer": "ancher <simbagoapp@gmail.com>"
     },
     "win": {
       "target": [
@@ -79,6 +85,19 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libsecret-1-0"
+      ],
+      "priority": "optional"
     }
   }
 }
