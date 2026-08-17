@@ -29,6 +29,7 @@ let pending = [];        // команды, пришедшие до готовн
 
 let queue = [];          // список треков: { id, accessKey, title, artist, ... }
 let index = -1;          // позиция в очереди
+let volume = 1;          // громкость — часть состояния плеера, а не настройка
 // Порядок обхода: при перемешивании это перетасованные номера треков, иначе
 // просто по порядку. Так «дальше» не возвращает одну и ту же песню дважды,
 // а выключение перемешивания продолжает очередь с текущего места.
@@ -167,6 +168,7 @@ function persist() {
     const payload = {
       index,
       position,
+      volume,
       tracks: queue.slice(0, MAX_SAVED).map(({ id, accessKey, title, artist, duration, cover }) => (
         { id, accessKey, title, artist, duration, cover }
       )),
@@ -197,6 +199,10 @@ function restore() {
   if (!saved || !Array.isArray(saved.tracks) || !saved.tracks.length) return false;
 
   queue = saved.tracks;
+  if (Number.isFinite(saved.volume)) {
+    volume = Math.max(0, Math.min(1, saved.volume));
+    send('setVolume', volume);
+  }
   const at = Number.isInteger(saved.index) ? saved.index : 0;
   index = at;
   rebuildOrder();
@@ -275,6 +281,13 @@ function queueLength() {
 }
 
 function command(name, value) {
+  if (name === 'setVolume') {
+    const level = Number(value);
+    if (Number.isFinite(level)) {
+      volume = Math.max(0, Math.min(1, level));
+      persist();
+    }
+  }
   switch (name) {
     case 'next':
       if (cursor + 1 < order.length) {
