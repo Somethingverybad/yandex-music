@@ -17,10 +17,13 @@
     "dist:linux": "electron-builder --linux AppImage deb",
     "dist:win": "electron-builder --win nsis portable",
     "dist:mac": "electron-builder --mac dmg",
-    "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js"
+    "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js",
+    "prepare:tray-icon": "electron scripts/make-tray-icon.js",
+    "release:mac": "electron-builder --mac dmg --universal --publish always"
   },
   "dependencies": {
     "dbus-next": "^0.9.2",
+    "electron-updater": "^6.8.9",
     "hls.js": "^1.7.0",
     "mpris-service": "^2.1.2",
     "node-id3": "^0.2.9"
@@ -79,6 +82,13 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Somethingverybad",
+        "repo": "yandex-music"
+      }
+    ]
   }
 }

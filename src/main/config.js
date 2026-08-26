@@ -103,6 +103,10 @@ const DEFAULTS = {
   // при автоопределении Chromium может выбрать разные бэкенды в разных
   // сеансах, и сохранённый токен перестаёт расшифровываться.
   password_store: 'gnome-libsecret',
+  // Проверять обновления на GitHub раз в несколько часов. Пока сборка
+  // подписана ad-hoc, встроенный установщик macOS её не примет, поэтому
+  // приложение лишь сообщает о новой версии — см. updater.js
+  auto_update: true,
   // Закрытие большого окна прячет его, а не выходит из приложения
   close_to_tray: true,
 };
@@ -192,7 +196,7 @@ function update(patch) {
   }
   for (const key of ['skip_existing', 'block_ads', 'widget_enabled', 'widget_compact',
     'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'widget_lite', 'vk_enabled', 'vk_native_player', 'vk_shuffle',
-    'start_hidden', 'close_to_tray']) {
+    'start_hidden', 'close_to_tray', 'auto_update']) {
     if (patch[key] !== undefined) data[key] = Boolean(patch[key]);
   }
   for (const key of ['widget_x', 'widget_y']) {

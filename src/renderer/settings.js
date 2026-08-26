@@ -18,6 +18,7 @@ const ui = {
   accentYm: el('accent-ym'),
   accentVk: el('accent-vk'),
   lite: el('lite'),
+  autoUpdate: el('auto-update'),
   saved: el('saved'),
 };
 
@@ -40,6 +41,7 @@ async function load() {
   ui.layout.value = cfg.download_layout || 'artist';
   ui.skipExisting.checked = cfg.skip_existing !== false;
   ui.blockAds.checked = cfg.block_ads !== false;
+  ui.autoUpdate.checked = cfg.auto_update !== false;
   ui.bitrate.value = String(cfg.preferred_bitrate || 320);
   ui.vkEnabled.checked = cfg.vk_enabled !== false;
 
@@ -71,6 +73,7 @@ async function save() {
     download_layout: ui.layout.value,
     skip_existing: ui.skipExisting.checked,
     block_ads: ui.blockAds.checked,
+    auto_update: ui.autoUpdate.checked,
     preferred_bitrate: parseInt(ui.bitrate.value, 10),
     vk_enabled: ui.vkEnabled.checked,
     widget_opacity: parseInt(ui.opacity.value, 10) / 100,
