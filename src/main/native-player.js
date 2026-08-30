@@ -254,6 +254,47 @@ function playQueue(tracks, position = 0) {
   return loadIndex(position);
 }
 
+/** Совпадают ли списки по составу и порядку. */
+function sameTracks(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id) return false;
+  }
+  return true;
+}
+
+/**
+ * Подхватывает очередь, изменившуюся на странице.
+ *
+ * Свежедобавленный трек ВК запускает как плейлист из него одного, и дальше
+ * идти оказывалось некуда. Страница при этом знает полный список раздела,
+ * поэтому периодически спрашиваем её заново.
+ *
+ * Текущий трек не перезаряжаем: меняется только список вокруг него, а
+ * играющая песня и её место продолжаются как ни в чём не бывало. Если её в
+ * новом списке нет, значит на странице открыт другой раздел, который ещё не
+ * включали, — такую очередь не берём, иначе оборвали бы воспроизведение.
+ */
+function syncQueue(tracks) {
+  if (!Array.isArray(tracks) || !tracks.length) return false;
+  if (!hasTrack()) return false;
+
+  const playing = queue[index];
+  const at = tracks.findIndex((item) => item && item.id === playing.id);
+  if (at < 0) return false;
+  if (sameTracks(tracks, queue)) return false;
+
+  // у играющего трека уже есть свежая ссылка — её терять незачем
+  queue = tracks.map((item, position) => (position === at ? { ...item, ...playing } : item));
+  index = at;
+  rebuildOrder();
+  persist();
+
+  console.log('[native] очередь обновлена со страницы: %d треков, играет %d-й',
+    queue.length, index + 1);
+  return true;
+}
+
 /** Перемешивание: порядок обхода пересобирается, очередь остаётся прежней. */
 function setShuffle(on) {
   shuffled = Boolean(on);
@@ -264,6 +305,25 @@ function setShuffle(on) {
 
 function isShuffled() {
   return shuffled;
+}
+
+/**
+ * Ставит трек следом за текущим и включает его.
+ *
+ * Так ведёт себя только что добавленная в библиотеку песня: ВК запускает её
+ * отдельным плейлистом из одного трека, и заменять этим плейлистом очередь
+ * нельзя — иначе после него идти некуда. Вставляем рядом, и когда песня
+ * доиграет, продолжится прежний список.
+ */
+function insertAndPlay(track) {
+  if (!track || !track.id) return false;
+  const at = hasTrack() ? index + 1 : queue.length;
+  queue.splice(at, 0, track);
+  index = at;
+  rebuildOrder();
+  persist();
+  console.log('[native] трек добавлен в очередь на место %d из %d', at + 1, queue.length);
+  return loadIndex(at);
 }
 
 /** Где трек в текущей очереди; -1, если его там нет. */
@@ -330,5 +390,5 @@ function shutdown() {
 
 module.exports = {
   init, playQueue, command, hasTrack, stop, shutdown, restore,
-  positionOf, playAt, queueLength, setShuffle, isShuffled,
+  positionOf, playAt, queueLength, setShuffle, isShuffled, syncQueue, insertAndPlay,
 };

@@ -1347,10 +1347,31 @@ function registerIpc() {
         nativePlayer.playAt(known);
         return;
       }
+
+      // Незнакомый трек в одиночном плейлисте — так ВК запускает только что
+      // добавленную песню. Ставим её следующей, чтобы после неё продолжился
+      // прежний список, а не наступала тишина.
+      if (nativePlayer.queueLength() > 1) {
+        console.log('[main] ВК: новый трек — добавляю в очередь из %d',
+          nativePlayer.queueLength());
+        nativePlayer.insertAndPlay(tracks[0]);
+        return;
+      }
     }
 
     console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
     nativePlayer.playQueue(tracks, index);
+  });
+
+  /*
+   * Список раздела приходит и без нашего запроса: страница присылает его
+   * раз в десять секунд. Так подхватывается трек, добавленный уже во время
+   * прослушивания, — ВК запускает такой как плейлист из одного трека, и
+   * дальше идти было некуда.
+   */
+  ipcMain.on('vk:queue-sync', (_event, payload) => {
+    if (!vkNative() || !payload || !Array.isArray(payload.tracks)) return;
+    nativePlayer.syncQueue(payload.tracks);
   });
 
   /* --- окно настроек --- */
