@@ -36,6 +36,10 @@ let volume = 1;          // громкость — часть состояния
 let order = [];
 let cursor = 0;          // где мы в порядке обхода
 let shuffled = false;
+// Повтор очереди: после последнего трека продолжаем с первого. Без него
+// список молча упирается в конец, и «дальше» перестаёт работать — особенно
+// заметно, когда играет только что добавленная песня в самом хвосте.
+let repeat = true;
 let hooks = {};          // onState, onEnded, onError
 let getUserId = () => null;
 
@@ -236,7 +240,8 @@ function init(options = {}) {
 
   ipcMain.on('native:ended', () => {
     // доиграл — сам переходим к следующему, очередь знает только main
-    if (index + 1 < queue.length) loadIndex(index + 1);
+    if (cursor + 1 < order.length) loadIndex(order[cursor + 1]);
+    else if (repeat && order.length > 1) loadIndex(order[0]);
     else if (hooks.onEnded) hooks.onEnded();
   });
 
@@ -307,6 +312,12 @@ function isShuffled() {
   return shuffled;
 }
 
+/** Повтор очереди по кругу. */
+function setRepeat(on) {
+  repeat = Boolean(on);
+  return repeat;
+}
+
 /**
  * Ставит трек следом за текущим и включает его.
  *
@@ -354,11 +365,20 @@ function command(name, value) {
         loadIndex(order[cursor + 1]);
         return true;
       }
+      if (repeat && order.length > 1) {
+        console.log('[native] конец очереди — начинаю сначала');
+        loadIndex(order[0]);
+        return true;
+      }
       console.warn('[native] дальше некуда: %d из %d', cursor + 1, order.length);
       return false;
     case 'prev':
       if (cursor > 0) {
         loadIndex(order[cursor - 1]);
+        return true;
+      }
+      if (repeat && order.length > 1) {
+        loadIndex(order[order.length - 1]);
         return true;
       }
       console.warn('[native] назад некуда: %d из %d', cursor + 1, order.length);
@@ -390,5 +410,5 @@ function shutdown() {
 
 module.exports = {
   init, playQueue, command, hasTrack, stop, shutdown, restore,
-  positionOf, playAt, queueLength, setShuffle, isShuffled, syncQueue, insertAndPlay,
+  positionOf, playAt, queueLength, setShuffle, isShuffled, syncQueue, setRepeat, insertAndPlay,
 };
