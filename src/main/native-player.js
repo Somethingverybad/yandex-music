@@ -414,7 +414,13 @@ function shutdown() {
   ready = false;
 }
 
+/** Трек, который заряжен сейчас: очередь знает только main-процесс. */
+function currentTrack() {
+  if (index < 0 || index >= queue.length) return null;
+  return queue[index];
+}
+
 module.exports = {
-  init, playQueue, command, hasTrack, stop, shutdown, restore,
+  init, playQueue, command, hasTrack, stop, shutdown, restore, currentTrack,
   positionOf, playAt, queueLength, setShuffle, isShuffled, syncQueue, setRepeat, insertAndPlay,
 };

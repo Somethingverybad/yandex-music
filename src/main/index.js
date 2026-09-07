@@ -24,6 +24,7 @@ const config = require('./config');
 const { YmApi } = require('./ym-api');
 const { Downloader } = require('./downloader');
 const nativePlayer = require('./native-player');
+const vkApi = require('./vk-api');
 const updater = require('./updater');
 const mpris = require('./mpris');
 const traySni = require('./tray-sni');
@@ -1193,20 +1194,33 @@ function reportProgress(payload) {
  */
 async function downloadCurrentVkTrack() {
   const win = sourceWindow('vk');
-  if (!win) {
+  // Со своим плеером страница ВК живёт своей жизнью: там остаётся тот трек,
+  // с которого выбирали очередь. Спрашивать текущий надо у того, кто играет.
+  if (!vkNative() && !win) {
     sendToWidget('download:done', { ok: false, error: 'Окно ВК Музыки не открыто' });
     return;
   }
 
   try {
-    const track = await win.webContents.executeJavaScript(
-      'window.__vkApi && window.__vkApi.currentTrack();'
-    );
+    let track;
+    if (vkNative()) {
+      const playing = nativePlayer.currentTrack();
+      if (!playing) throw new Error('Сейчас ничего не играет');
+      const userId = config.get('vk_user_id');
+      if (!userId) throw new Error('Откройте ВК Музыку и войдите');
+      // ссылка из очереди могла протухнуть — берём свежую, как при загрузке
+      const fresh = await vkApi.track(playing.id, playing.accessKey, userId);
+      track = { ...playing, ...(fresh || {}) };
+    } else {
+      track = await win.webContents.executeJavaScript(
+        'window.__vkApi && window.__vkApi.currentTrack();'
+      );
+    }
     if (!track) throw new Error('Сейчас ничего не играет');
 
     // ffmpeg тянет сегменты сам, и для ВК важно представляться так же,
     // как окно приложения, — иначе CDN может отказать
-    track.userAgent = win.webContents.getUserAgent();
+    track.userAgent = win ? win.webContents.getUserAgent() : app.userAgentFallback;
 
     sendToWidget('download:progress', { pct: 0, title: track.title });
     const result = await downloader.saveDirectTrack(track);
