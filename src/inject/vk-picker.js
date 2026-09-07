@@ -101,6 +101,13 @@
   /* ---------- отправка выбора ---------- */
 
   var lastSent = '';
+  var lastQueueKey = '';   // чтобы не слать одну и ту же очередь по кругу
+
+  /** Отпечаток очереди: длина и края — этого хватает, чтобы заметить правку. */
+  function queueKey(tracks) {
+    if (!tracks.length) return '';
+    return tracks.length + ':' + tracks[0].id + ':' + tracks[tracks.length - 1].id;
+  }
 
   function pick() {
     var tuple = currentTuple();
@@ -121,14 +128,37 @@
       index = 0;
     }
 
+    lastQueueKey = queueKey(tracks);
     if (window.__ymHost && window.__ymHost.pick) {
       window.__ymHost.pick({ tracks: tracks, index: index });
     }
   }
 
+  /*
+   * Пересылает список раздела целиком.
+   *
+   * Только что добавленный трек ВК запускает как плейлист из него одного,
+   * и приложению дальше идти некуда. Полный список страница знает, поэтому
+   * время от времени присылаем его заново — приложение подставит очередь
+   * вокруг играющей песни, не прерывая её.
+   */
+  function syncQueue() {
+    if (!window.__ymHost || !window.__ymHost.syncQueue) return;
+    var tracks = currentQueue().map(toTrack).filter(Boolean);
+    if (tracks.length < 2) return;
+
+    // без отпечатка каждые десять секунд уезжал бы один и тот же список
+    var key = queueKey(tracks);
+    if (key === lastQueueKey) return;
+    lastQueueKey = key;
+
+    window.__ymHost.syncQueue({ tracks: tracks });
+  }
+
   // Смену трека ловим опросом: у ap своя шина событий, но её имена
   // меняются вместе с вёрсткой, а поле с текущим треком живёт давно
   setInterval(pick, 400);
+  setInterval(syncQueue, 10000);
 
   /*
    * Весь перехват держится на window.ap. Если ВК его переименует или отдаст

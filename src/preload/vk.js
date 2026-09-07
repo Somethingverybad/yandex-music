@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('__ymHost', {
   log: (message) => ipcRenderer.send('player:log', String(message)),
   // выбор музыки в каталоге: очередь уходит собственному плееру
   pick: (payload) => ipcRenderer.send('vk:pick', payload),
+  // список раздела меняется и без нашего участия — например, когда в него
+  // добавляют трек, — поэтому страница периодически присылает его заново
+  syncQueue: (payload) => ipcRenderer.send('vk:queue-sync', payload),
 });

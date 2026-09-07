@@ -24,6 +24,7 @@ const config = require('./config');
 const { YmApi } = require('./ym-api');
 const { Downloader } = require('./downloader');
 const nativePlayer = require('./native-player');
+const updater = require('./updater');
 const mpris = require('./mpris');
 const traySni = require('./tray-sni');
 const wallpaper = require('./wallpaper');
@@ -856,6 +857,7 @@ function showWidgetMenu(x, y) {
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
+    { label: 'Проверить обновления', click: () => updater.check({ manual: true }) },
     { label: 'Показать журнал', click: showLogFile },
     { type: 'separator' },
     {
@@ -1101,6 +1103,7 @@ function trayMenuTemplate() {
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
+    { label: 'Проверить обновления', click: () => updater.check({ manual: true }) },
     { label: 'Показать журнал', click: showLogFile },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
@@ -1344,10 +1347,31 @@ function registerIpc() {
         nativePlayer.playAt(known);
         return;
       }
+
+      // Незнакомый трек в одиночном плейлисте — так ВК запускает только что
+      // добавленную песню. Ставим её следующей, чтобы после неё продолжился
+      // прежний список, а не наступала тишина.
+      if (nativePlayer.queueLength() > 1) {
+        console.log('[main] ВК: новый трек — добавляю в очередь из %d',
+          nativePlayer.queueLength());
+        nativePlayer.insertAndPlay(tracks[0]);
+        return;
+      }
     }
 
     console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
     nativePlayer.playQueue(tracks, index);
+  });
+
+  /*
+   * Список раздела приходит и без нашего запроса: страница присылает его
+   * раз в десять секунд. Так подхватывается трек, добавленный уже во время
+   * прослушивания, — ВК запускает такой как плейлист из одного трека, и
+   * дальше идти было некуда.
+   */
+  ipcMain.on('vk:queue-sync', (_event, payload) => {
+    if (!vkNative() || !payload || !Array.isArray(payload.tracks)) return;
+    nativePlayer.syncQueue(payload.tracks);
   });
 
   /* --- окно настроек --- */
@@ -1685,6 +1709,7 @@ if (!gotLock) {
     // возвращаем последнюю очередь: трек встаёт на паузу там, где его
     // оставили, — раньше это помнил сайт, теперь помним сами
     if (vkNative() && config.get('vk_enabled')) nativePlayer.restore();
+    updater.start(config.get('auto_update') !== false);
     wallpaper.find().then((found) => {
       wallpaperPath = found;
       if (found) {
