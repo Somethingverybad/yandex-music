@@ -203,7 +203,11 @@ async function tracks(ids, userId) {
   if (!ids.length) return [];
   const data = await call('reload_audios', { audio_ids: ids.join(',') });
   const list = data && data.payload && data.payload[1] && data.payload[1][0];
-  if (!Array.isArray(list)) return [];
+  // Гостю ВК отвечает валидным JSON с пустой выдачей, а не ошибкой, поэтому
+  // пустой список для непустого запроса означает именно потерю сессии
+  if (!Array.isArray(list) || !list.length) {
+    throw new Error('ВК не отдал треки — похоже, сессия истекла: откройте ВК Музыку и войдите');
+  }
   return list.map((tuple) => toTrack(tuple, userId)).filter(Boolean);
 }
 

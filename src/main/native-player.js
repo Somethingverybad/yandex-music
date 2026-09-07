@@ -130,7 +130,9 @@ async function loadIndex(at, autoplay = true, startAt = 0) {
     }
 
     const fresh = await vkApi.track(item.id, item.accessKey, userId);
-    if (!fresh || !fresh.url) throw new Error('нет ссылки на файл');
+    if (!fresh || !fresh.url) {
+      throw new Error('ВК не дал ссылку на файл — откройте ВК Музыку и проверьте, что вход не слетел');
+    }
     if (fresh.url.includes('audio_api_unavailable')) {
       throw new Error('ссылку не удалось распаковать — возможно, id пользователя чужой');
     }
@@ -140,6 +142,10 @@ async function loadIndex(at, autoplay = true, startAt = 0) {
     send('load', { track: queue[index], autoplay, startAt });
     return true;
   } catch (err) {
+    // Раньше сообщение уходило только тостом в виджет и через четыре секунды
+    // исчезало: в журнале не оставалось ничего, и разбираться было не с чем
+    console.warn('[native] не удалось зарядить «%s — %s»: %s',
+      item.artist, item.title, err.message);
     if (hooks.onError) hooks.onError(`${item.artist} — ${item.title}: ${err.message}`);
     return false;
   }
