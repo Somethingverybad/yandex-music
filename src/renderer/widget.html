@@ -34,6 +34,9 @@
   <div class="widget" id="widget">
     <div class="glass-sheen" aria-hidden="true"></div>
 
+    <!-- Плеер: обложка, название, кнопки. Ниже — панель поиска, она
+         раскрывается по кнопке с лупой, окно на это время растёт. -->
+    <div class="player">
     <div class="cover" id="cover" title="Открыть Яндекс Музыку">
       <img id="cover-img" alt="">
       <div class="cover-placeholder" id="cover-placeholder">♪</div>
@@ -76,6 +79,10 @@
       <button class="icon-btn small" id="download" title="Скачать текущий трек">
         <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3zM5 19h14v2H5z"/></svg>
       </button>
+      <!-- Поиск по ВК; кнопка занимает место «Мне нравится», которой в ВК нет -->
+      <button class="icon-btn small hidden" id="search-btn" title="Поиск в ВК Музыке">
+        <svg viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>
+      </button>
       <button class="icon-btn small" id="menu-btn" title="Меню">
         <svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
       </button>
@@ -84,6 +91,21 @@
     <div class="progress" id="progress">
       <div class="progress-fill" id="progress-fill"></div>
       <div class="progress-knob" id="progress-knob"></div>
+    </div>
+    </div>
+
+    <!-- Панель поиска: строка запроса и найденные треки. Выдача живёт в
+         main-процессе, сюда приходит только список для показа. -->
+    <div class="search" id="search">
+      <form class="search-bar" id="search-form">
+        <input id="search-input" type="text" placeholder="Поиск в ВК Музыке"
+               autocomplete="off" spellcheck="false">
+        <button type="button" class="icon-btn small" id="search-close" title="Закрыть (Esc)">
+          <svg viewBox="0 0 24 24"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z"/></svg>
+        </button>
+      </form>
+      <div class="search-status" id="search-status">Введите исполнителя или название</div>
+      <div class="search-results" id="search-results"></div>
     </div>
   </div>
 

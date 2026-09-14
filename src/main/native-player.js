@@ -40,6 +40,10 @@ let shuffled = false;
 // список молча упирается в конец, и «дальше» перестаёт работать — особенно
 // заметно, когда играет только что добавленная песня в самом хвосте.
 let repeat = true;
+// Откуда взялась очередь: раздел страницы ВК («vk:playlist:…») или поиск
+// из виджета («search:…»). По этому признаку отличаем правку того же списка
+// от чужого раздела, который страница присылает по своему расписанию.
+let origin = '';
 let hooks = {};          // onState, onEnded, onError
 let getUserId = () => null;
 
@@ -170,15 +174,19 @@ function statePath() {
  * протухают за считанные часы и всё равно запрашиваются заново.
  */
 function persist() {
-  clearTimeout(saveTimer);
-  // после смены трека и на паузе состояние сыплется часто, поэтому пишем
-  // файл не чаще раза в пару секунд
+  // Состояние приходит каждые полсекунды, пока трек играет, поэтому пишем
+  // файл не чаще раза в пару секунд. Таймер именно не сбрасывается новым
+  // вызовом: иначе во время воспроизведения он не срабатывал бы никогда,
+  // и очередь сохранялась только на паузе.
+  if (saveTimer) return;
   saveTimer = setTimeout(() => {
+    saveTimer = null;
     if (!queue.length || index < 0) return;
     const payload = {
       index,
       position,
       volume,
+      origin,
       tracks: queue.slice(0, MAX_SAVED).map(({ id, accessKey, title, artist, duration, cover }) => (
         { id, accessKey, title, artist, duration, cover }
       )),
@@ -209,6 +217,7 @@ function restore() {
   if (!saved || !Array.isArray(saved.tracks) || !saved.tracks.length) return false;
 
   queue = saved.tracks;
+  origin = typeof saved.origin === 'string' ? saved.origin : '';
   if (Number.isFinite(saved.volume)) {
     volume = Math.max(0, Math.min(1, saved.volume));
     send('setVolume', volume);
@@ -258,11 +267,22 @@ function init(options = {}) {
 }
 
 /** Ставит очередь и начинает играть с указанной позиции. */
-function playQueue(tracks, position = 0) {
+function playQueue(tracks, position = 0, from = '') {
   queue = Array.isArray(tracks) ? tracks.filter(Boolean) : [];
   index = position;
+  origin = String(from || '');
   rebuildOrder();
   return loadIndex(position);
+}
+
+/** Откуда взялась текущая очередь (см. origin). */
+function queueOrigin() {
+  return origin;
+}
+
+/** Тот ли это список, что играет сейчас: по составу и порядку. */
+function sameQueue(tracks) {
+  return Array.isArray(tracks) && sameTracks(tracks, queue);
 }
 
 /** Совпадают ли списки по составу и порядку. */
@@ -286,9 +306,14 @@ function sameTracks(a, b) {
  * новом списке нет, значит на странице открыт другой раздел, который ещё не
  * включали, — такую очередь не берём, иначе оборвали бы воспроизведение.
  */
-function syncQueue(tracks) {
+function syncQueue(tracks, from = '') {
   if (!Array.isArray(tracks) || !tracks.length) return false;
   if (!hasTrack()) return false;
+
+  // Очередь из поиска виджета или из другого раздела страница не правит:
+  // иначе «Моя музыка», оставшаяся открытой на сайте, подменяла бы выдачу
+  // поиска, стоило играющему треку оказаться и там тоже
+  if (origin && String(from || '') !== origin) return false;
 
   const playing = queue[index];
   const at = tracks.findIndex((item) => item && item.id === playing.id);
@@ -403,6 +428,7 @@ function hasTrack() {
 function stop() {
   queue = [];
   index = -1;
+  origin = '';
   send('stop');
 }
 
@@ -423,4 +449,5 @@ function currentTrack() {
 module.exports = {
   init, playQueue, command, hasTrack, stop, shutdown, restore, currentTrack,
   positionOf, playAt, queueLength, setShuffle, isShuffled, syncQueue, setRepeat, insertAndPlay,
+  queueOrigin, sameQueue,
 };

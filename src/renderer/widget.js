@@ -21,6 +21,12 @@ const ui = {
   volume: el('volume'),
   volumeFill: el('volume-fill'),
   shuffle: el('shuffle'),
+  searchBtn: el('search-btn'),
+  searchForm: el('search-form'),
+  searchInput: el('search-input'),
+  searchClose: el('search-close'),
+  searchStatus: el('search-status'),
+  searchResults: el('search-results'),
 };
 
 const PLAY_PATH = 'M8 5v14l11-7z';
@@ -31,6 +37,9 @@ let statusTimer = null;
 let seeking = false;
 let settingVolume = false;   // тянем ползунок громкости
 let source = 'ym';           // активный сервис: 'ym' | 'vk'
+let canSearch = false;       // поиск по ВК доступен (ВК включён, играет свой плеер)
+let searchOpen = false;      // панель поиска раскрыта — окно на это время выше
+let searchResults = [];      // что показано в панели: тот же порядок, что в main
 
 const SERVICES = {
   ym: { name: 'Яндекс Музыку', hint: 'Откройте Яндекс Музыку и включите трек' },
@@ -53,6 +62,8 @@ function setSource(next) {
   // приходится искать по разметке, и надёжного признака у неё нет.
   // Пока не разобрались — не показываем кнопку, которая ничего не делает.
   ui.like.classList.toggle('hidden', source === 'vk');
+  // поиск — только по ВК: в Яндексе им занимается сама страница
+  ui.searchBtn.classList.toggle('hidden', !(canSearch && source === 'vk'));
   ui.cover.title = 'Открыть ' + service().name;
   applyAccent();
   renderArtist();
@@ -222,6 +233,7 @@ function renderTrack() {
   }
 
   ui.like.classList.toggle('active', state.liked === true);
+  markPlayingResult();
 
   // бегущая строка только для длинных названий
   requestAnimationFrame(() => {
@@ -314,6 +326,8 @@ function applyConfig(cfg) {
   ui.shuffle.classList.toggle('hidden', !cfg.canShuffle);
   ui.shuffle.classList.toggle('active', Boolean(cfg.shuffle));
   ui.shuffle.title = cfg.shuffle ? 'Перемешивание включено' : 'Перемешать';
+  canSearch = Boolean(cfg.canSearch);
+  setSearchOpen(Boolean(cfg.searchOpen));
   if (cfg.accent) accents = { ...accents, ...cfg.accent };
   if (cfg.source) setSource(cfg.source);
   else applyAccent();
@@ -461,6 +475,114 @@ ui.cover.addEventListener('wheel', (event) => {
   showStatus(`Громкость ${Math.round(volume * 100)}%`);
 }, { passive: false });
 
+/* ---------- поиск по ВК ---------- */
+
+/**
+ * Панель раскрывает main: он же меняет размер окна. Здесь только
+ * подстраиваем разметку под присланное состояние и ставим курсор в поле.
+ */
+function setSearchOpen(open) {
+  const changed = open !== searchOpen;
+  searchOpen = open;
+  document.body.classList.toggle('search-open', open);
+  ui.searchBtn.classList.toggle('active', open);
+  if (open && changed) {
+    ui.searchInput.focus();
+    ui.searchInput.select();
+  }
+  if (!open) ui.searchInput.blur();
+}
+
+function setSearchStatus(message, isError) {
+  ui.searchStatus.textContent = message;
+  ui.searchStatus.classList.toggle('error', Boolean(isError));
+}
+
+function markPlayingResult() {
+  const id = state.hasTrack ? state.trackId : null;
+  for (const row of ui.searchResults.children) {
+    row.classList.toggle('playing', Boolean(id) && row.dataset.id === String(id));
+  }
+}
+
+function renderResults(tracks) {
+  searchResults = tracks;
+  ui.searchResults.textContent = '';
+  tracks.forEach((track, position) => {
+    const row = document.createElement('div');
+    row.className = 'result';
+    row.dataset.id = track.id;
+    row.title = `${track.artist} — ${track.title}`;
+
+    const cover = track.cover ? document.createElement('img') : document.createElement('div');
+    cover.className = 'result-cover';
+    if (track.cover) {
+      cover.src = track.cover;
+      cover.alt = '';
+    } else {
+      cover.textContent = '♪';
+    }
+
+    const text = document.createElement('div');
+    text.className = 'result-text';
+    const title = document.createElement('div');
+    title.className = 'result-title';
+    title.textContent = track.title || 'Без названия';
+    const artist = document.createElement('div');
+    artist.className = 'result-artist';
+    artist.textContent = track.artist || 'Неизвестный исполнитель';
+    text.append(title, artist);
+
+    const duration = document.createElement('div');
+    duration.className = 'result-duration';
+    duration.textContent = formatTime(track.duration);
+
+    row.append(cover, text, duration);
+    row.addEventListener('click', () => {
+      // очередь собирается в main из той же выдачи; сюда вернётся состояние
+      send('play-search-result', position);
+    });
+    ui.searchResults.appendChild(row);
+  });
+  ui.searchResults.scrollTop = 0;
+  markPlayingResult();
+}
+
+let searchSeq = 0;   // ответ на устаревший запрос не должен перебить свежий
+
+async function runSearch() {
+  const query = ui.searchInput.value.trim();
+  if (!query) {
+    setSearchStatus('Введите исполнителя или название');
+    return;
+  }
+  const seq = ++searchSeq;
+  setSearchStatus(`Ищу «${query}»…`);
+  let result;
+  try {
+    result = await window.widgetApi.vkSearch(query);
+  } catch (err) {
+    result = { ok: false, error: err.message };
+  }
+  if (seq !== searchSeq) return;
+
+  if (!result || !result.ok) {
+    setSearchStatus('Ошибка: ' + ((result && result.error) || 'неизвестно'), true);
+    return;
+  }
+  renderResults(result.tracks || []);
+  setSearchStatus(result.tracks && result.tracks.length
+    ? `Найдено ${result.tracks.length} — клик ставит выдачу в очередь`
+    : `По запросу «${query}» ничего не найдено`);
+}
+
+ui.searchBtn.addEventListener('click', () => send('toggle-search'));
+ui.searchClose.addEventListener('click', () => send('toggle-search', false));
+ui.searchForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  runSearch();
+});
+
 /* ---------- меню ---------- */
 
 // Меню рисует main-процесс: окно виджета слишком мало, чтобы
@@ -479,6 +601,14 @@ window.addEventListener('contextmenu', (event) => {
 /* ---------- клавиатура ---------- */
 
 window.addEventListener('keydown', (event) => {
+  // Esc закрывает панель поиска откуда угодно
+  if (event.key === 'Escape' && searchOpen) {
+    event.preventDefault();
+    send('toggle-search', false);
+    return;
+  }
+  // в поле поиска клавиши набирают текст, а не управляют плеером
+  if (event.target === ui.searchInput) return;
   switch (event.code) {
     case 'Space': event.preventDefault(); send('toggle'); break;
     case 'ArrowRight': send(event.ctrlKey ? 'next' : 'seek', event.ctrlKey ? undefined : Math.min((state.position || 0) + 10, state.duration || 0)); break;

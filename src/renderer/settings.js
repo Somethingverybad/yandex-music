@@ -12,6 +12,7 @@ const ui = {
   token: el('token'),
   tokenStatus: el('token-status'),
   vkEnabled: el('vk-enabled'),
+  vkResetQueue: el('vk-reset-queue'),
   vkNote: el('vk-note'),
   opacity: el('opacity'),
   opacityValue: el('opacity-value'),
@@ -44,6 +45,7 @@ async function load() {
   ui.autoUpdate.checked = cfg.auto_update !== false;
   ui.bitrate.value = String(cfg.preferred_bitrate || 320);
   ui.vkEnabled.checked = cfg.vk_enabled !== false;
+  ui.vkResetQueue.checked = cfg.vk_reset_queue !== false;
 
   const opacity = Math.round((cfg.widget_opacity != null ? cfg.widget_opacity : 1) * 100);
   ui.opacity.value = String(opacity);
@@ -76,6 +78,7 @@ async function save() {
     auto_update: ui.autoUpdate.checked,
     preferred_bitrate: parseInt(ui.bitrate.value, 10),
     vk_enabled: ui.vkEnabled.checked,
+    vk_reset_queue: ui.vkResetQueue.checked,
     widget_opacity: parseInt(ui.opacity.value, 10) / 100,
     widget_accent_ym: ui.accentYm.value,
     widget_accent_vk: ui.accentVk.value,

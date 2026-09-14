@@ -42,6 +42,11 @@ const DEFAULTS = {
   // Перемешивать очередь своего плеера. Порядок обхода пересобирается,
   // сама очередь при этом не трогается
   vk_shuffle: false,
+  // Выбор трека на странице ВК заменяет очередь списком того раздела, где
+  // он выбран: включил песню из поиска — дальше идёт выдача поиска, а не
+  // «Моя музыка», в которой та песня тоже лежит. Выключено — очередь
+  // сохраняется, если трек в ней уже есть.
+  vk_reset_queue: true,
   // id вошедшего пользователя ВК: служит ключом распаковки ссылок на файлы.
   // Читается из страницы при входе и сохраняется, чтобы дальше обходиться
   // без неё — см. vk-api.js
@@ -196,6 +201,7 @@ function update(patch) {
   }
   for (const key of ['skip_existing', 'block_ads', 'widget_enabled', 'widget_compact',
     'widget_always_on_top', 'widget_in_taskbar', 'widget_glass', 'widget_lite', 'vk_enabled', 'vk_native_player', 'vk_shuffle',
+    'vk_reset_queue',
     'start_hidden', 'close_to_tray', 'auto_update']) {
     if (patch[key] !== undefined) data[key] = Boolean(patch[key]);
   }

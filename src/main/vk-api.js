@@ -218,4 +218,96 @@ async function track(id, accessKey, userId) {
   return found || null;
 }
 
-module.exports = { call, track, tracks, unmaskUrl, toTrack, FIELD };
+/** Похож ли массив на кортеж аудиозаписи: числовой id и строковое название. */
+function looksLikeTuple(value) {
+  return Array.isArray(value) && value.length > FIELD.ACCESS_KEY
+    && typeof value[FIELD.TITLE] === 'string' && typeof value[FIELD.PERFORMER] === 'string';
+}
+
+/**
+ * Собирает из ответа каталога все списки треков.
+ *
+ * В payload[1][1] лежит объект с массивом playlists — блоками страницы
+ * (треки, исполнители, альбомы), у каждого из которых может быть list с
+ * кортежами. Рассчитывать на точное место нельзя: ВК переставляет поля,
+ * поэтому при пустой выдаче обходим весь ответ и берём любые массивы,
+ * похожие на списки кортежей.
+ */
+function collectLists(data) {
+  const lists = [];
+  const seen = new Set();
+  const add = (list, title) => {
+    if (!Array.isArray(list) || !list.length || seen.has(list)) return;
+    if (!list.every(looksLikeTuple)) return;
+    seen.add(list);
+    lists.push({ title: title ? decodeEntities(String(title)) : '', list });
+  };
+
+  const section = data && data.payload && data.payload[1] && data.payload[1][1];
+  if (section && Array.isArray(section.playlists)) {
+    for (const playlist of section.playlists) {
+      if (playlist && typeof playlist === 'object') add(playlist.list, playlist.title);
+    }
+  }
+
+  if (!lists.length) {
+    const walk = (value, depth) => {
+      if (!value || typeof value !== 'object' || depth > 8) return;
+      if (Array.isArray(value)) {
+        add(value, '');
+        if (!seen.has(value)) value.forEach((item) => walk(item, depth + 1));
+        return;
+      }
+      add(value.list, value.title);
+      for (const key of Object.keys(value)) {
+        if (key !== 'list') walk(value[key], depth + 1);
+      }
+    };
+    walk(data && data.payload, 0);
+  }
+  return lists;
+}
+
+/**
+ * Поиск по каталогу ВК: тот же запрос, что делает страница vk.ru/audio?q=…
+ *
+ * Возвращает треки первого блока выдачи — обычно это и есть найденные
+ * песни; блоки исполнителей и альбомов приходят без списков. Ссылок на
+ * файлы в выдаче может не быть — перед воспроизведением они запрашиваются
+ * заново через track().
+ *
+ * @param {string} query  что ищем
+ * @param {string} userId id пользователя — без него ВК отвечает пустой выдачей
+ */
+async function search(query, userId) {
+  const text = String(query || '').trim();
+  if (!text) return { query: text, tracks: [] };
+
+  const data = await call('section', {
+    claim: '0',
+    is_layer: '0',
+    owner_id: userId,
+    q: text,
+    section: 'search',
+  });
+
+  const lists = collectLists(data);
+  // самый длинный блок — общая выдача; короткие — «популярное у исполнителя»
+  // и подобные подборки, которыми ВК разбавляет результат
+  let best = null;
+  for (const item of lists) {
+    if (!best || item.list.length > best.list.length) best = item;
+  }
+  const found = best ? best.list.map((tuple) => toTrack(tuple, userId)).filter(Boolean) : [];
+  // выдача иногда повторяет один трек в двух блоках; в очереди он нужен один раз
+  const unique = [];
+  const ids = new Set();
+  for (const item of found) {
+    if (ids.has(item.id)) continue;
+    ids.add(item.id);
+    unique.push(item);
+  }
+  return { query: text, title: best ? best.title : '', tracks: unique };
+}
+
+module.exports = { call, track, tracks, search, collectLists, unmaskUrl, toTrack, FIELD };

@@ -53,6 +53,8 @@ const SHADOW_PAD = 24;
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 100;
 const PANEL_HEIGHT_COMPACT = 58;
+// Панель поиска по ВК раскрывается под плеером: окно на это время растёт
+const SEARCH_PANEL_HEIGHT = 250;
 
 /**
  * Только macOS: vibrancy заливает весь contentView окна, поэтому прозрачные
@@ -132,6 +134,14 @@ let backdropTimer = null;
 // с каким видом создано текущее окно виджета: размытие включается при
 // создании, поэтому смена режима требует пересоздания
 let appliedLite = null;
+// Панель поиска в виджете открыта: окно выше на высоту панели. Не настройка —
+// после перезапуска виджет всегда стартует свёрнутым до плеера
+let widgetSearchOpen = false;
+// на сколько виджет подвинули вверх, чтобы раскрытая панель влезла в экран
+let widgetSearchShift = 0;
+// Последняя выдача поиска: виджет присылает только номер выбранного трека,
+// а сама очередь остаётся в main — гонять сотни треков туда-обратно незачем
+let lastSearch = null;
 
 /* ------------------------------------------------------------------ */
 /* Вспомогательное                                                     */
@@ -696,7 +706,82 @@ async function acceptToken(token) {
 
 function widgetHeight() {
   const panel = config.get('widget_compact') ? PANEL_HEIGHT_COMPACT : PANEL_HEIGHT;
-  return panel + widgetPad() * 2;
+  return panel + (widgetSearchOpen ? SEARCH_PANEL_HEIGHT : 0) + widgetPad() * 2;
+}
+
+/** Умеет ли виджет искать: поиск ходит в ВК напрямую, без страницы. */
+function canSearch() {
+  return Boolean(config.get('vk_enabled')) && vkNative();
+}
+
+/**
+ * Раскрывает или прячет панель поиска.
+ *
+ * Панель растёт вниз, а виджет обычно стоит у нижнего края экрана, поэтому
+ * на время поиска окно поднимаем ровно настолько, чтобы панель влезла, и
+ * возвращаем на место, когда она закрывается.
+ */
+function setWidgetSearch(open) {
+  const next = Boolean(open) && canSearch();
+  if (next === widgetSearchOpen) {
+    sendToWidget('widget:config', widgetConfig());
+    return;
+  }
+  widgetSearchOpen = next;
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+
+  const [x, y] = widgetWindow.getPosition();
+  if (next) {
+    const area = screen.getDisplayMatching({ x, y, width: widgetWidth(), height: widgetHeight() }).workArea;
+    const overflow = y + widgetHeight() - widgetPad() - (area.y + area.height);
+    widgetSearchShift = overflow > 0 ? Math.min(overflow, y - area.y + widgetPad()) : 0;
+    applyWidgetSize();
+    if (widgetSearchShift > 0) widgetWindow.setPosition(x, y - widgetSearchShift);
+  } else {
+    applyWidgetSize();
+    if (widgetSearchShift > 0) {
+      const back = clampWidgetPosition(x, y + widgetSearchShift);
+      widgetWindow.setPosition(back.x, back.y);
+    }
+    widgetSearchShift = 0;
+  }
+  sendToWidget('widget:config', widgetConfig());
+}
+
+/**
+ * Поиск по ВК из виджета. Выдача остаётся в main: виджет показывает список
+ * и присылает номер выбранного трека — см. playSearchResult().
+ */
+async function searchVk(query) {
+  const text = String(query || '').trim();
+  if (!text) return { ok: false, error: 'Введите, что искать' };
+  if (!canSearch()) return { ok: false, error: 'ВК Музыка выключена в настройках' };
+  const userId = config.get('vk_user_id');
+  if (!userId) return { ok: false, error: 'Откройте ВК Музыку и войдите — поиск работает от вашей сессии' };
+
+  try {
+    const result = await vkApi.search(text, userId);
+    lastSearch = { query: text, tracks: result.tracks };
+    console.log('[main] поиск ВК «%s»: %d треков', text, result.tracks.length);
+    return {
+      ok: true,
+      query: text,
+      tracks: result.tracks.map(({ id, title, artist, duration, cover }) => ({ id, title, artist, duration, cover })),
+    };
+  } catch (err) {
+    console.warn('[main] поиск ВК «%s» не удался: %s', text, err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/** Очередь из последней выдачи поиска, играет выбранный трек. */
+function playSearchResult(position) {
+  const at = Number(position);
+  if (!lastSearch || !Number.isInteger(at) || at < 0 || at >= lastSearch.tracks.length) return;
+  if (activeSource() !== 'vk') setSource('vk');
+  console.log('[main] ВК: очередь из поиска «%s» — %d треков, играет %d-й',
+    lastSearch.query, lastSearch.tracks.length, at + 1);
+  nativePlayer.playQueue(lastSearch.tracks, at, 'search:' + lastSearch.query);
 }
 
 /** Меняет размер виджета: у неизменяемого окна setSize молча игнорируется. */
@@ -855,6 +940,15 @@ function showWidgetMenu(x, y) {
     { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Открыть ВК Музыку', click: showVkWindow },
+    // Поиск — только по ВК; кнопка с лупой видна лишь при активном ВК,
+    // поэтому из Яндекса сюда попадают через меню: источник переключится
+    ...(canSearch() ? [{
+      label: 'Поиск в ВК Музыке…',
+      click: () => {
+        if (activeSource() !== 'vk') setSource('vk');
+        setWidgetSearch(true);
+      },
+    }] : []),
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
@@ -1340,10 +1434,19 @@ function registerIpc() {
     if (!vkNative() || !payload || !Array.isArray(payload.tracks)) return;
     const { tracks, index } = payload;
     if (!tracks.length) return;
+    const playlist = typeof payload.playlist === 'string' ? payload.playlist : '';
 
     // выбор в каталоге делает ВК активным сервисом — иначе виджет
     // показывал бы Яндекс, пока звучит ВК
     if (activeSource() !== 'vk') setSource('vk');
+
+    const known = nativePlayer.positionOf(tracks[index] ? tracks[index].id : tracks[0].id);
+
+    // Клик внутри того же списка, что уже играет, — просто переход
+    if (known >= 0 && nativePlayer.sameQueue(tracks)) {
+      nativePlayer.playAt(known);
+      return;
+    }
 
     /*
      * Одиночный трек приходит и тогда, когда очередь у страницы просто
@@ -1354,7 +1457,6 @@ function registerIpc() {
      * становилось нечем.
      */
     if (tracks.length === 1) {
-      const known = nativePlayer.positionOf(tracks[0].id);
       if (known >= 0) {
         console.log('[main] ВК: трек %d из очереди в %d — очередь сохраняем',
           known + 1, nativePlayer.queueLength());
@@ -1373,19 +1475,34 @@ function registerIpc() {
       }
     }
 
-    console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
-    nativePlayer.playQueue(tracks, index);
+    /*
+     * Трек уже есть в очереди, но выбран из другого раздела — например,
+     * песня из «Моей музыки» включена со страницы исполнителя. Со сбросом
+     * очереди дальше пойдёт список того раздела, где кликнули; без него —
+     * прежняя очередь, как если бы трек выбрали в ней.
+     */
+    if (known >= 0 && !config.get('vk_reset_queue')) {
+      console.log('[main] ВК: трек %d из очереди в %d — сброс выключен, очередь сохраняем',
+        known + 1, nativePlayer.queueLength());
+      nativePlayer.playAt(known);
+      return;
+    }
+
+    console.log('[main] ВК: очередь из %d треков (%s), играет %d-й',
+      tracks.length, playlist || 'раздел не определён', index + 1);
+    nativePlayer.playQueue(tracks, index, playlist);
   });
 
   /*
    * Список раздела приходит и без нашего запроса: страница присылает его
    * раз в десять секунд. Так подхватывается трек, добавленный уже во время
    * прослушивания, — ВК запускает такой как плейлист из одного трека, и
-   * дальше идти было некуда.
+   * дальше идти было некуда. Список чужого раздела плеер отбрасывает сам.
    */
   ipcMain.on('vk:queue-sync', (_event, payload) => {
     if (!vkNative() || !payload || !Array.isArray(payload.tracks)) return;
-    nativePlayer.syncQueue(payload.tracks);
+    const playlist = typeof payload.playlist === 'string' ? payload.playlist : '';
+    nativePlayer.syncQueue(payload.tracks, playlist);
   });
 
   /* --- окно настроек --- */
@@ -1430,6 +1547,8 @@ function registerIpc() {
     setImmediate(sendWidgetGeometry);
     return widgetConfig();
   });
+
+  ipcMain.handle('widget:vk-search', (_event, query) => searchVk(query));
 }
 
 /** Обработка команд виджета — вызывается и по IPC, и из нативного меню. */
@@ -1456,6 +1575,8 @@ function handleWidgetCommand(command, value) {
       sendToWidget('widget:config', widgetConfig());
       break;
     }
+    case 'toggle-search': setWidgetSearch(value === undefined ? !widgetSearchOpen : value); break;
+    case 'play-search-result': playSearchResult(value); break;
     case 'set-source': setSource(value); break;
     case 'toggle-source': setSource(activeSource() === 'ym' ? 'vk' : 'ym'); break;
     case 'open-service': (activeSource() === 'vk' ? showVkWindow : showMainWindow)(); break;
@@ -1547,6 +1668,9 @@ function widgetConfig() {
     // перемешивание умеет только свой плеер
     canShuffle: activeSource() === 'vk' && vkNative(),
     shuffle: Boolean(config.get('vk_shuffle')),
+    // поиск ходит в ВК напрямую и не зависит от активного сервиса
+    canSearch: canSearch(),
+    searchOpen: widgetSearchOpen,
     vkEnabled: Boolean(config.get('vk_enabled')),
     accent: {
       ym: config.get('widget_accent_ym'),
@@ -1575,6 +1699,8 @@ function applyRuntimeSettings() {
     widgetWindow.close();
     createWidget();
   }
+
+  if (widgetSearchOpen && !canSearch()) setWidgetSearch(false);
 
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.setOpacity(config.get('widget_opacity'));

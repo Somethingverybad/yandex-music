@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('widgetApi', {
   send: (command, value) => ipcRenderer.send('widget:command', { command, value }),
   openMenu: (x, y) => ipcRenderer.send('widget:menu', { x, y }),
   getConfig: () => ipcRenderer.invoke('widget:get-config'),
+  // поиск по ВК: выдача остаётся в main, виджет получает только список для показа
+  vkSearch: (query) => ipcRenderer.invoke('widget:vk-search', query),
   onState: (callback) => ipcRenderer.on('player:state', (_e, state) => callback(state)),
   onConfig: (callback) => ipcRenderer.on('widget:config', (_e, cfg) => callback(cfg)),
   onGeometry: (callback) => ipcRenderer.on('widget:geometry', (_e, geo) => callback(geo)),
