@@ -24,6 +24,7 @@ const config = require('./config');
 const { YmApi } = require('./ym-api');
 const { Downloader } = require('./downloader');
 const nativePlayer = require('./native-player');
+const vkApi = require('./vk-api');
 const updater = require('./updater');
 const mpris = require('./mpris');
 const traySni = require('./tray-sni');
@@ -1191,6 +1192,28 @@ function reportProgress(payload) {
  * там есть и cookie сессии, и ключ распаковки адреса, поэтому её добывает
  * vk-api.js, а main лишь сохраняет файл и проставляет теги.
  */
+/**
+ * Подставляет «Мою музыку» вокруг играющего трека.
+ *
+ * Страница знает только то, что на ней открыто, и для только что добавленной
+ * песни отдаёт плейлист из неё одной — играть дальше нечего. Библиотека же
+ * приходит целиком и не зависит ни от открытого раздела, ни от того, дал ли
+ * сайт доступ к своему плееру.
+ *
+ * Играющий трек при этом не перезаряжается: очередь меняется вокруг него.
+ */
+async function fillQueueFromLibrary() {
+  try {
+    const tracks = await vkApi.userAudios({ count: 300 });
+    if (tracks.length < 2) return;
+    const applied = nativePlayer.syncQueue(tracks);
+    console.log('[main] ВК: библиотека из %d треков — очередь %s',
+      tracks.length, applied ? 'обновлена' : 'оставлена прежней');
+  } catch (err) {
+    console.warn('[main] ВК: библиотеку прочитать не удалось: %s', err.message);
+  }
+}
+
 async function downloadCurrentVkTrack() {
   const win = sourceWindow('vk');
   if (!win) {
@@ -1355,8 +1378,14 @@ function registerIpc() {
         console.log('[main] ВК: новый трек — добавляю в очередь из %d',
           nativePlayer.queueLength());
         nativePlayer.insertAndPlay(tracks[0]);
+        fillQueueFromLibrary();
         return;
       }
+
+      // очереди ещё нет вовсе: играем что дали и сразу тянем библиотеку
+      nativePlayer.playQueue(tracks, index);
+      fillQueueFromLibrary();
+      return;
     }
 
     console.log('[main] ВК: очередь из %d треков, играет %d-й', tracks.length, index + 1);
@@ -1594,6 +1623,10 @@ function setupSession() {
     }
     callback({});
   });
+
+  // Токен веб-клиента ВК выдаётся только «своим» запросам: правим заголовки
+  // собственных обращений, иначе библиотеку через API не прочитать
+  vkApi.installSessionRules(ses);
 
   // Убираем из User-Agent следы Electron — сайт должен видеть обычный Chrome
   app.userAgentFallback = app.userAgentFallback

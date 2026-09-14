@@ -17,6 +17,12 @@
 const { net } = require('electron');
 
 const BASE = 'https://vk.ru';
+// Официальный метод API отдаёт библиотеку целиком и с готовыми ссылками —
+// в отличие от al_audio.php, который знает только то, что открыто на странице
+const API = 'https://api.vk.ru/method';
+const LOGIN = 'https://login.vk.ru/?act=web_token';
+const APP_ID = '6287487';       // app_id веб-клиента ВК
+const API_VERSION = '5.246';
 
 // Индексы полей в кортеже аудиозаписи — порядок задаёт сам VK
 const FIELD = {
@@ -143,6 +149,94 @@ function unmaskUrl(url, userId) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Токен и библиотека                                                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Выдача токена проверяет Origin, а подделать его в обычном запросе
+ * Chromium не даёт: сетевой стек отбрасывает такой запрос сам. Зато свои
+ * заголовки можно править перед отправкой — этим и пользуемся. Из страницы
+ * тот же запрос не проходит из-за CORS, так что путь остаётся один.
+ */
+function installSessionRules(ses) {
+  ses.webRequest.onBeforeSendHeaders(
+    { urls: [`${LOGIN}*`, 'https://login.vk.ru/*', 'https://api.vk.ru/*'] },
+    (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders };
+      requestHeaders.Origin = BASE;
+      requestHeaders.Referer = `${BASE}/`;
+      callback({ requestHeaders });
+    }
+  );
+}
+
+let token = null;          // { value, expires } — секунды эпохи
+
+/** Токен веб-клиента: выдаётся по cookie сессии и живёт ограниченное время. */
+async function webToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (token && token.expires > now + 60) return token.value;
+
+  const body = new URLSearchParams({ version: '1', app_id: APP_ID, access_token: '' });
+  const response = await net.fetch(LOGIN, {
+    method: 'POST',
+    body,
+    credentials: 'include',
+    headers: { 'x-requested-with': 'XMLHttpRequest' },
+  });
+
+  const text = new TextDecoder('windows-1251').decode(Buffer.from(await response.arrayBuffer()));
+  const data = JSON.parse(text);
+  if (data.type !== 'okay' || !data.data || !data.data.access_token) {
+    const reason = data.error_info ? JSON.stringify(data.error_info) : String(data.type);
+    throw new Error(`токен не выдан (${reason})`);
+  }
+
+  token = { value: data.data.access_token, expires: Number(data.data.expires) || (now + 600) };
+  return token.value;
+}
+
+/** Трек из ответа официального API — в наше представление. */
+function fromApiItem(item) {
+  if (!item || !item.id) return null;
+  const album = item.album && item.album.thumb;
+  return {
+    id: `${item.owner_id}_${item.id}`,
+    accessKey: String(item.access_key || ''),
+    title: String(item.title || ''),
+    artist: String(item.artist || ''),
+    duration: Number(item.duration) || 0,
+    cover: (album && (album.photo_300 || album.photo_270 || album.photo_135)) || '',
+    url: String(item.url || ''),
+  };
+}
+
+/**
+ * «Моя музыка» пользователя.
+ *
+ * Нужна там, где страница бессильна: ВК запускает только что добавленный
+ * трек плейлистом из него одного, и очередь взять неоткуда. Здесь же
+ * библиотека приходит целиком и не зависит от того, что открыто в окне.
+ */
+async function userAudios({ count = 200, offset = 0 } = {}) {
+  const body = new URLSearchParams({
+    access_token: await webToken(),
+    v: API_VERSION,
+    count: String(count),
+    offset: String(offset),
+  });
+
+  const response = await net.fetch(`${API}/audio.get`, { method: 'POST', body });
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(`${data.error.error_msg} (${data.error.error_code})`);
+  }
+
+  const items = (data.response && data.response.items) || [];
+  return items.map(fromApiItem).filter(Boolean);
+}
+
+/* ------------------------------------------------------------------ */
 /* Запросы                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -214,4 +308,7 @@ async function track(id, accessKey, userId) {
   return found || null;
 }
 
-module.exports = { call, track, tracks, unmaskUrl, toTrack, FIELD };
+module.exports = {
+  call, track, tracks, unmaskUrl, toTrack, FIELD,
+  installSessionRules, webToken, userAudios,
+};
