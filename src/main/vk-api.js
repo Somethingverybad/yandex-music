@@ -236,6 +236,34 @@ async function userAudios({ count = 200, offset = 0 } = {}) {
   return items.map(fromApiItem).filter(Boolean);
 }
 
+/**
+ * Поиск по каталогу ВК.
+ *
+ * Тем же токеном, что и библиотека, и с такими же готовыми ссылками —
+ * поэтому искать музыку можно не открывая сайт.
+ */
+async function search(query, { count = 50 } = {}) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  const body = new URLSearchParams({
+    access_token: await webToken(),
+    v: API_VERSION,
+    q: text,
+    count: String(count),
+    auto_complete: '1',
+  });
+
+  const response = await net.fetch(`${API}/audio.search`, { method: 'POST', body });
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(`${data.error.error_msg} (${data.error.error_code})`);
+  }
+
+  const items = (data.response && data.response.items) || [];
+  return items.map(fromApiItem).filter(Boolean);
+}
+
 /* ------------------------------------------------------------------ */
 /* Запросы                                                             */
 /* ------------------------------------------------------------------ */
@@ -314,5 +342,5 @@ async function track(id, accessKey, userId) {
 
 module.exports = {
   call, track, tracks, unmaskUrl, toTrack, FIELD,
-  installSessionRules, webToken, userAudios,
+  installSessionRules, webToken, userAudios, search,
 };

@@ -117,6 +117,9 @@ let mainWindow = null;
 let vkWindow = null;
 let widgetWindow = null;
 let settingsWindow = null;
+let searchWindow = null;
+// последняя выдача поиска: по ней играем и качаем, обращаясь по позиции
+let searchResults = [];
 let tray = null;
 let api = null;
 let downloader = null;
@@ -650,6 +653,48 @@ function showSettingsWindow() {
   win.on('closed', () => { if (settingsWindow === win) settingsWindow = null; });
 }
 
+/* ------------------------------------------------------------------ */
+/* Окно поиска                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Поиск по ВК прямо в приложении.
+ *
+ * Каталог сайта мы стараемся не держать открытым — он весит втрое больше
+ * всего остального, — поэтому искать музыку логично своими силами: тем же
+ * токеном, что и библиотеку, и с готовыми ссылками.
+ */
+function showSearchWindow() {
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    searchWindow.show();
+    searchWindow.focus();
+    return;
+  }
+
+  searchWindow = new BrowserWindow({
+    width: 520,
+    height: 620,
+    minWidth: 420,
+    minHeight: 420,
+    title: 'Поиск в ВК Музыке',
+    icon: ICON_PATH,
+    backgroundColor: '#17171a',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(ROOT_DIR, 'src', 'preload', 'search.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  searchWindow.loadFile(path.join(ROOT_DIR, 'src', 'renderer', 'search.html'));
+
+  const win = searchWindow;
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => { if (searchWindow === win) searchWindow = null; });
+}
+
 /** Окно авторизации/получения токена с перехватом access_token. */
 function openAuthWindow(url) {
   const authWindow = new BrowserWindow({
@@ -855,6 +900,7 @@ function showWidgetMenu(x, y) {
     { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Открыть ВК Музыку', click: showVkWindow },
+    { label: 'Поиск в ВК Музыке…', click: showSearchWindow },
     { label: 'Скачать текущий трек', click: () => downloadCurrentTrack() },
     { label: 'Открыть папку с музыкой', click: () => openDownloadsFolder() },
     { label: 'Настройки…', click: showSettingsWindow },
@@ -1093,6 +1139,7 @@ function trayMenuTemplate() {
     { type: 'separator' },
     { label: 'Открыть Яндекс Музыку', click: showMainWindow },
     { label: 'Открыть ВК Музыку', click: showVkWindow },
+    { label: 'Поиск в ВК Музыке…', click: showSearchWindow },
     { label: 'Показать виджет', click: () => showWidget() },
     { label: 'Вернуть виджет на место', click: () => handleWidgetCommand('reset-position') },
     {
@@ -1441,6 +1488,42 @@ function registerIpc() {
   });
 
   ipcMain.on('settings:open-vk', () => showVkWindow());
+
+  /* --- поиск по ВК --- */
+
+  ipcMain.handle('search:query', async (_event, query) => {
+    searchResults = await vkApi.search(query);
+    console.log('[main] ВК: поиск «%s» — %d треков', String(query).slice(0, 40), searchResults.length);
+    return searchResults;
+  });
+
+  ipcMain.on('search:play', (_event, position) => {
+    const track = searchResults[position];
+    if (!track) return;
+    // играем всю выдачу с выбранного места: так после трека идёт следующий
+    // найденный, а не тишина
+    if (activeSource() !== 'vk') setSource('vk');
+    nativePlayer.playQueue(searchResults, position);
+  });
+
+  ipcMain.handle('search:download', async (_event, position) => {
+    const track = searchResults[position];
+    if (!track) return { ok: false, error: 'Трек не найден' };
+    try {
+      sendToWidget('download:progress', { pct: 0, title: track.title });
+      const result = await downloader.saveDirectTrack({ ...track, userAgent: app.userAgentFallback });
+      sendToWidget('download:done', result);
+      return result;
+    } catch (err) {
+      console.error('[main] скачивание из поиска: %s', err.message);
+      sendToWidget('download:done', { ok: false, error: err.message });
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.on('search:close', () => {
+    if (searchWindow && !searchWindow.isDestroyed()) searchWindow.close();
+  });
 
   ipcMain.on('settings:close', () => {
     if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' https: data:;">
+  <title>Поиск в ВК Музыке</title>
+  <link rel="stylesheet" href="search.css">
+</head>
+<body>
+  <header>
+    <input type="search" id="query" placeholder="Исполнитель или название" autocomplete="off" autofocus>
+  </header>
+
+  <main id="results">
+    <p class="hint" id="hint">Введите запрос — найденное можно слушать и скачивать,
+      не открывая сайт.</p>
+  </main>
+
+  <script src="search.js"></script>
+</body>
+</html>
